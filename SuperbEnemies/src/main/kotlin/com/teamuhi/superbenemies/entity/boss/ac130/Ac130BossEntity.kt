@@ -13,6 +13,7 @@ import com.teamuhi.superbenemies.entity.boss.common.BossLifecycleSettings
 import com.teamuhi.superbenemies.init.ModEntities
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.Style
 import net.minecraft.resources.ResourceLocation
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.util.Mth
@@ -110,6 +111,10 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
         return if (max > 0f) health / max else 0f
     }
 
+    /** Chat message to the players around the boss, and around [alsoNear] when given (same reach as the crippled / defeated broadcasts). */
+    fun announce(translationKey: String, style: Style, alsoNear: Vec3? = null) =
+        lifecycle.broadcast(translationKey, style, alsoNear)
+
     /** True for any [BossCrewEntity] that is currently a passenger of this boss. */
     override fun isCrew(entity: Entity?): Boolean = entity is BossCrewEntity && entity.vehicle === this
 
@@ -123,7 +128,7 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
 
     override fun defensiveFlares(): Boolean = Ac130Config.DEFENSIVE_FLARES.get()
 
-    override fun flareMissChance(): Double = Ac130Config.FLARE_MISS_CHANCE.get()
+    override fun flareMissChance(): Double = Ac130Config.FLARE_MISS_CHANCE.get() / 100.0
 
     /** Unit vector of the current heading in the horizontal plane (Minecraft yaw convention). */
     private fun horizontalLook(): Vec3 {
@@ -282,6 +287,8 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
             lifecycle.checkCripple()
             // The AI writes its control inputs first so SBW's engine sees them during this tick's travel().
             if (!lifecycle.defeated) brain.tick()
+            // Derived every tick, so a boss reloaded mid-resupply comes back with its bar still hidden.
+            lifecycle.barHidden = brain.withdrawn
             lifecycle.tickWounded()
         }
 
@@ -423,6 +430,7 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
         const val LAUNCH_SPEED = 1.6
         const val LAUNCH_POWER = 1.6f
         const val MAINTAIN_INTERVAL = 10
-        const val CHUNK_TICKET_INTERVAL = 10
+        /** Below the 5 tick timeout of SBW's POST_TELEPORT ticket, so the chunk never drops out between renewals. */
+        const val CHUNK_TICKET_INTERVAL = 4
     }
 }

@@ -363,7 +363,7 @@
     "SpeedRate": 1,
     "GearRotateAngle": 85,
     "EngineStartSound": "superbwarfare:a_10a_engine_start",
-    "EngineSoundVolume" : 0.2
+    "EngineSoundVolume" : 0.08
   },
   "TerrainCompat": [[-0.182, 0, 3.47], [-1.935, 0, -0.555], [1.935, 0, -0.555]],
   "EngineSound": "superbwarfare:a_10a_engine"

@@ -152,8 +152,10 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
      *
      * @param aimVelocity per-tick velocity of [aim], for lead
      * @param mayFire false in states where the gunship must not shoot (taunt, resupply)
+     * @param plan per-gun aim orders that replace [aim] (split / focus fire); with a plan every ready gun fires at once,
+     *        whatever the `simultaneous` options say, since sharing the turns would defeat the pattern
      */
-    fun tick(aim: Entity?, aimVelocity: Vec3, mayFire: Boolean) {
+    fun tick(aim: Entity?, aimVelocity: Vec3, mayFire: Boolean, plan: Ac130FirePlan? = null) {
         val now = boss.tickCount
         if (now >= nextScatterTick) {
             nextScatterTick = now + SCATTER_REROLL_TICKS
@@ -163,8 +165,15 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         }
 
         val live = !boss.crippled && !boss.isWreck
-        val center = if (aim != null && aim.isAlive && !aim.isRemoved) aim.boundingBox.center else null
-        val allowed = if (mayFire && center != null) allowedGuns(now) else emptySet()
+        val shared = if (aim != null && aim.isAlive && !aim.isRemoved) aim.boundingBox.center else null
+        if (plan != null) updateTracks(plan)
+        val anyAim = if (plan != null) plan.perGun.isNotEmpty() else shared != null
+        val allowed = when {
+            !mayFire || !anyAim -> emptySet()
+            plan != null -> readyGuns().toSet()
+            else -> allowedGuns(now)
+        }
+        val scatterScale = plan?.scatterScale ?: 1.0
 
         for (gun in Ac130Gun.entries) {
             val st = stateOf(gun)
@@ -176,12 +185,16 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
                 continue
             }
 
-            val usable = live && center != null && enabled(gun) && hasAmmo(gun)
+            // The shared target, or this gun's own order from the plan.
+            val resolved = if (plan != null) plan.perGun[gun]?.let { resolve(it) }
+            else shared?.let { Resolved(it, aimVelocity) }
+
+            val usable = live && resolved != null && enabled(gun) && hasAmmo(gun)
             st.hasAim = false
             if (usable) {
                 val origin = boss.getShootPos(gunner, 1f)
-                var point = leadPoint(gun, origin, center!!, aimVelocity)
-                if (gun == Ac130Gun.M61) point = point.add(scatter)
+                var point = leadPoint(gun, origin, resolved!!.center, resolved.velocity)
+                if (gun == Ac130Gun.M61) point = point.add(scatter.scale(scatterScale))
                 val wanted = point.subtract(origin)
                 if (wanted.lengthSqr() > 1.0e-6 && finite(wanted)) {
                     st.hasAim = true
@@ -202,6 +215,40 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
             if (now - st.lastCall > BURST_GAP_RESET) st.burstEnd = 0
         }
     }
+
+    /** A gun's aim point and the velocity of what is there, for lead. */
+    private class Resolved(val center: Vec3, val velocity: Vec3)
+
+    /** Smoothed per-tick velocity of every entity a plan aims at, from position differences (a teleport is not motion). */
+    private class Track(var last: Vec3, var velocity: Vec3)
+
+    private val tracks = HashMap<Int, Track>()
+
+    private fun updateTracks(plan: Ac130FirePlan) {
+        val entities = plan.perGun.values.mapNotNull { it.entity }.filter { it.isAlive && !it.isRemoved }.distinctBy { it.id }
+        tracks.keys.retainAll(entities.map { it.id }.toSet())
+        for (entity in entities) {
+            val position = entity.position()
+            val track = tracks[entity.id]
+            if (track == null) {
+                tracks[entity.id] = Track(position, Vec3.ZERO)
+                continue
+            }
+            val delta = position.subtract(track.last)
+            track.last = position
+            track.velocity = if (delta.lengthSqr() > TELEPORT_DISTANCE_SQR) Vec3.ZERO
+            else track.velocity.scale(1.0 - VELOCITY_SMOOTHING).add(delta.scale(VELOCITY_SMOOTHING))
+        }
+    }
+
+    private fun resolve(order: GunAim): Resolved? {
+        val entity = order.entity ?: return Resolved(order.offset, Vec3.ZERO)
+        if (!entity.isAlive || entity.isRemoved) return null
+        return Resolved(entity.boundingBox.center.add(order.offset), tracks[entity.id]?.velocity ?: Vec3.ZERO)
+    }
+
+    /** Enabled guns with ammo and a gunner in the seat, in seat order. */
+    fun readyGuns(): List<Ac130Gun> = Ac130Gun.entries.filter { enabled(it) && hasAmmo(it) && seatedGunner(it) != null }
 
     /**
      * Where the clamped gun line crosses the height of [point] (the lead point, which already includes the drop
@@ -234,7 +281,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
      * out-of-arc gun never stalls the others.
      */
     private fun allowedGuns(now: Int): Set<Ac130Gun> {
-        val ready = Ac130Gun.entries.filter { enabled(it) && hasAmmo(it) && seatedGunner(it) != null }
+        val ready = readyGuns()
         val group = ready.filter { simultaneous(it) }.toSet()
         val turns = buildList {
             if (group.isNotEmpty()) add(group)
@@ -411,7 +458,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         }
     }
 
-    /** Bursts of 20-40 ticks separated by 10-20 tick pauses (final phase: x0.6), one round per `1200/rpm` ticks. */
+    /** Bursts of 45-90 ticks separated by 2-4 tick pauses (final phase: x0.6), one round per `1200/rpm` ticks. */
     private fun fireCannon(gun: Ac130Gun, gunner: BossCrewEntity, st: GunState, now: Int) {
         if (now - st.lastCall > BURST_GAP_RESET) st.burstEnd = 0
         st.lastCall = now
@@ -478,14 +525,14 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         const val TAG_AMMO = "Ammo"
 
         // Firing gates
-        const val FIRE_ANGLE = 2.0
-        const val MAX_RANGE = 400.0
+        const val FIRE_ANGLE = 3.0
+        const val MAX_RANGE = 450.0
         const val MAX_LEAD_TICKS = 120.0
 
         // Barrage: fire while the clamped line still lands this close to the target
-        const val M61_BARRAGE_RADIUS = 10.0
-        const val BOFORS_BARRAGE_RADIUS = 12.0
-        const val M102_BARRAGE_RADIUS = 14.0
+        const val M61_BARRAGE_RADIUS = 14.0
+        const val BOFORS_BARRAGE_RADIUS = 16.0
+        const val M102_BARRAGE_RADIUS = 18.0
         const val MIN_BARRAGE_DESCENT = 0.05
 
         // Turns for guns that do not fire simultaneously
@@ -493,10 +540,10 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         const val TURN_IDLE_TICKS = 15
 
         // M61 cadence and scatter
-        const val CANNON_BURST_MIN = 30
-        const val CANNON_BURST_MAX = 60
-        const val CANNON_PAUSE_MIN = 4
-        const val CANNON_PAUSE_MAX = 8
+        const val CANNON_BURST_MIN = 45
+        const val CANNON_BURST_MAX = 90
+        const val CANNON_PAUSE_MIN = 2
+        const val CANNON_PAUSE_MAX = 4
         const val BURST_GAP_RESET = 2
         const val HEAT_CAP = 70.0
         const val CANNOT_SHOOT_BACKOFF = 10
@@ -504,8 +551,12 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         const val SCATTER_REROLL_TICKS = 3
         const val P3_PAUSE_SCALE = 0.6
 
+        // Motion estimate of split-fire targets
+        const val VELOCITY_SMOOTHING = 0.3
+        const val TELEPORT_DISTANCE_SQR = 20.0 * 20.0
+
         // M102
-        const val HOWITZER_P1_COOLDOWN = 40
+        const val HOWITZER_P1_COOLDOWN = 20
 
         // Orbit radius suggestion
         const val MIN_WORLD_DEPRESSION = 12.0

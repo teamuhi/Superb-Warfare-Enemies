@@ -267,6 +267,39 @@ class Ac130Targeting(private val boss: Ac130BossEntity) {
         return pool[boss.getRandom().nextInt(pool.size)]
     }
 
+    /**
+     * Up to [max] valid targets other than [primary] within [radius] blocks (horizontal) of it, nearest first, each as
+     * what the weapons aim at (the vehicle it rides). Used by the split fire pattern; follows `targetPriority` and the
+     * same eligibility rules as the main target, but ignores the aggro range (they are next to a target already held).
+     */
+    fun extraTargets(level: ServerLevel, primary: Entity, radius: Double, max: Int): List<Entity> {
+        val priority = Ac130Config.TARGET_PRIORITY.get()
+        val found = ArrayList<LivingEntity>()
+        if (priority.players) {
+            for (player in level.players()) if (validPlayer(player, lose = true)) found.add(player)
+            if (dummiesArePlayers()) {
+                for (dummy in TrackedDummies.all(level)) {
+                    if (dummy is PlayerDummyEntity && validDummy(dummy, lose = true)) found.add(dummy)
+                }
+            }
+        }
+        if (priority.mobs) {
+            val box = AABB(
+                primary.x - radius, level.minBuildHeight.toDouble(), primary.z - radius,
+                primary.x + radius, level.maxBuildHeight.toDouble(), primary.z + radius
+            )
+            found.addAll(level.getEntitiesOfClass(Mob::class.java, box) { eligibleMob(it) })
+        }
+        val origin = primary.position()
+        return found.asSequence()
+            .map { it.rootVehicle }
+            .filter { it.id != primary.id && FlightMath.horizontalDistance(it.position(), origin) <= radius }
+            .distinctBy { it.id }
+            .sortedBy { FlightMath.horizontalDistance(it.position(), origin) }
+            .take(max)
+            .toList()
+    }
+
     // ================================================================================================== motion estimate
 
     private fun trackAim(entity: Entity?) {
@@ -289,7 +322,7 @@ class Ac130Targeting(private val boss: Ac130BossEntity) {
         else aimVelocity.scale(1.0 - VELOCITY_SMOOTHING).add(delta.scale(VELOCITY_SMOOTHING))
     }
 
-    private companion object {
+    internal companion object {
         const val TAG_TARGET = "Target"
 
         const val SCAN_INTERVAL = 20

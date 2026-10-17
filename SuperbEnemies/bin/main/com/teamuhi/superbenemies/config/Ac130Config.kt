@@ -47,6 +47,8 @@ object Ac130Config {
     val CANNON_SIMULTANEOUS: ForgeConfigSpec.BooleanValue
     val BOFORS_SIMULTANEOUS: ForgeConfigSpec.BooleanValue
     val HOWITZER_SIMULTANEOUS: ForgeConfigSpec.BooleanValue
+    val SPLIT_FIRE_CHANCE: ForgeConfigSpec.IntValue
+    val FOCUS_FIRE_CHANCE: ForgeConfigSpec.IntValue
 
     val LIMITED_AMMO: ForgeConfigSpec.BooleanValue
     val CANNON_ROUNDS: ForgeConfigSpec.IntValue
@@ -55,7 +57,7 @@ object Ac130Config {
     val RESUPPLY_SECONDS: ForgeConfigSpec.IntValue
 
     val DEFENSIVE_FLARES: ForgeConfigSpec.BooleanValue
-    val FLARE_MISS_CHANCE: ForgeConfigSpec.DoubleValue
+    val FLARE_MISS_CHANCE: ForgeConfigSpec.IntValue
     val TAUNT_ENABLED: ForgeConfigSpec.BooleanValue
     val IGNORE_BLOCK_COLLISIONS: ForgeConfigSpec.BooleanValue
     val BOSS_BAR_RANGE: ForgeConfigSpec.IntValue
@@ -71,122 +73,108 @@ object Ac130Config {
         b.comment("AC-130 boss: Angel of Death").push("ac130_boss")
 
         MAX_HEALTH = b
-            .comment(
-                "Boss health. The boss bar empties at 10% of this value, which is when the gunship starts to crash.",
-                "Applied when the boss is first created."
-            )
+            .comment("Boss health. The boss bar empties at 10% of this, when the gunship starts to crash.")
             .defineInRange("maxHealth", 3000, 100, 1_000_000)
 
         CRUISE_HEIGHT = b
-            .comment("Orbit altitude, in blocks above the target. The guns fire down at it from this height.")
+            .comment("Orbit altitude in blocks above the target.")
             .defineInRange("cruiseHeightAboveTarget", 90, 40, 400)
 
         AGGRO_RANGE = b
-            .comment(
-                "Horizontal range (blocks) in which the boss picks a survival or adventure player as its target.",
-                "Only used when globalAggro is false."
-            )
+            .comment("Range (blocks) in which the boss picks a player as target. Unused if globalAggro is on.")
             .defineInRange("aggroRange", 256, 32, 1024)
 
         GLOBAL_AGGRO = b
-            .comment(
-                "The boss hunts the nearest survival or adventure player anywhere in its dimension and never loses them",
-                "by distance (its chunks are kept loaded). Also shows the boss bar to every player in the dimension.",
-                "Read live."
-            )
+            .comment("Hunt the nearest player anywhere in the dimension and show the boss bar to everyone.")
             .define("globalAggro", true)
 
         ORBIT_RADIUS = b
-            .comment(
-                "Radius (blocks) of the left-hand orbit the gunship flies around its target. The AI widens or tightens it",
-                "within 0.6x to 1.8x of this value to keep the target inside the guns' firing window.",
-                "Read live."
-            )
+            .comment("Radius (blocks) of the orbit around the target. The AI adjusts it between 0.6x and 1.8x.")
             .defineInRange("orbitRadius", 120, 60, 400)
 
         TARGET_PRIORITY = b
             .comment(
-                "What the boss attacks: PLAYERS (players only), PLAYERS_AND_MOBS (players and any living mob, the nearest",
-                "is engaged) or MOBS_ONLY (never players). Whoever last hurt it takes priority if it is an allowed target.",
-                "Mobs are only engaged under open sky, so it never shells caves. Read live."
+                "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS (nearest) or MOBS_ONLY.",
+                "Mobs are only engaged under open sky."
             )
             .defineEnum("targetPriority", Ac130TargetPriority.PLAYERS_AND_MOBS)
 
         MOB_SCAN_RANGE = b
-            .comment("Unless targetPriority is PLAYERS: horizontal range (blocks) around the boss in which mobs are considered. Read live.")
+            .comment("Range (blocks) in which mobs are considered as targets. Unused if targetPriority is PLAYERS.")
             .defineInRange("mobScanRange", 128, 32, 256)
 
         RANDOM_TARGETING = b
-            .comment(
-                "Switch to a random target every randomTargetSeconds instead of sticking to one (the nearest, or whoever last",
-                "hurt it). Players (and dummies) are drawn first; mobs only when no player is a valid target. Read live."
-            )
+            .comment("Switch to a random target periodically. Players are drawn first, mobs only if no player is valid.")
             .define("randomTargeting", true)
 
         RANDOM_TARGET_SECONDS = b
-            .comment("Only with randomTargeting: average seconds on one target before a new one is drawn (varies by +-25%). Read live.")
+            .comment("With randomTargeting: average seconds on one target (varies by +-25%).")
             .defineInRange("randomTargetSeconds", 20, 5, 300)
 
         b.pop().push("ac130_damage")
 
         CANNON_DAMAGE_MULT = b
-            .comment("Multiplier for 25mm cannon damage (direct and explosion). Applied when the boss is first created.")
+            .comment("Damage multiplier for the 25mm cannon. Applied when the boss is first created.")
             .defineInRange("cannon25mmDamageMultiplier", 1.0, 0.0, 100.0)
         BOFORS_DAMAGE_MULT = b
-            .comment("Multiplier for 40mm Bofors cannon damage. Applied when the boss is first created.")
+            .comment("Damage multiplier for the 40mm Bofors. Applied when the boss is first created.")
             .defineInRange("bofors40mmDamageMultiplier", 1.0, 0.0, 100.0)
         HOWITZER_DAMAGE_MULT = b
-            .comment("Multiplier for 105mm howitzer damage. Applied when the boss is first created.")
+            .comment("Damage multiplier for the 105mm howitzer. Applied when the boss is first created.")
             .defineInRange("howitzer105mmDamageMultiplier", 1.0, 0.0, 100.0)
 
         BLOCK_DAMAGE = b
-            .comment(
-                "Whether the shells and the final crash explosion break blocks.",
-                "Applied when the boss is first created."
-            )
+            .comment("Whether shells and the crash explosion break blocks. Applied when the boss is first created.")
             .define("blockDamage", true)
 
         b.pop().push("ac130_weapons")
 
         CANNON_ENABLED = b
-            .comment(
-                "Whether the boss may fire the 25mm cannon (M61).",
-                "Read live. If every weapon is disabled the boss still flies and circles its target but never attacks."
-            )
+            .comment("Whether the boss may fire the 25mm cannon. With every weapon off it only flies and circles.")
             .define("cannon25mmEnabled", true)
         BOFORS_ENABLED = b
-            .comment("Whether the boss may fire the 40mm Bofors cannon. Read live.")
+            .comment("Whether the boss may fire the 40mm Bofors.")
             .define("bofors40mmEnabled", true)
         HOWITZER_ENABLED = b
-            .comment("Whether the boss may fire the 105mm howitzer. Read live.")
+            .comment("Whether the boss may fire the 105mm howitzer.")
             .define("howitzer105mmEnabled", true)
 
         CANNON_SIMULTANEOUS = b
             .comment(
-                "Whether the 25mm cannon fires at the same time as the other guns marked simultaneous.",
-                "Guns marked simultaneous fire together as one group; every gun not marked gets its own turn and fires",
-                "alone. Turns rotate: about 3 seconds each (the 105mm turn ends after one shell), passed on early when the",
-                "gun cannot fire. All on = everything fires at once; all off = one gun at a time. Read live."
+                "Whether the 25mm cannon fires together with the other guns marked simultaneous.",
+                "Unmarked guns take turns firing alone (about 3 seconds each)."
             )
             .define("cannon25mmSimultaneous", true)
         BOFORS_SIMULTANEOUS = b
-            .comment("Whether the 40mm Bofors fires at the same time as the other guns marked simultaneous. Read live.")
+            .comment("Whether the 40mm Bofors fires together with the other simultaneous guns.")
             .define("bofors40mmSimultaneous", true)
         HOWITZER_SIMULTANEOUS = b
-            .comment("Whether the 105mm howitzer fires at the same time as the other guns marked simultaneous. Read live.")
+            .comment("Whether the 105mm howitzer fires together with the other simultaneous guns.")
             .define("howitzer105mmSimultaneous", true)
+
+        SPLIT_FIRE_CHANCE = b
+            .comment(
+                "Split fire: every gun shoots a different target at the same time (other players or mobs near the main one,",
+                "otherwise a different spot around it). Percent chance that the periodic pattern roll (every 15-25 seconds of",
+                "circling) starts it. 0 = never. Needs at least two usable guns. Read live."
+            )
+            .defineInRange("splitFireChance", 20, 0, 100)
+        FOCUS_FIRE_CHANCE = b
+            .comment(
+                "Focus fire: every gun pounds the same fixed spot (where the target stood when it began) while the gunship",
+                "circles it. Percent chance that the periodic pattern roll starts it, checked after splitFireChance",
+                "(the two add up, the rest of the time the guns fire normally). 0 = never. Needs at least two usable guns.",
+                "Read live."
+            )
+            .defineInRange("focusFireChance", 20, 0, 100)
 
         b.pop().push("ac130_ammo")
 
         LIMITED_AMMO = b
-            .comment(
-                "Whether the boss has a finite load of ammunition. When every gun it may use is spent it flies far away",
-                "to resupply, then comes back to hunt again.",
-                "Read live. A full load is restored on every resupply."
-            )
+            .comment("Finite ammo. When spent, the boss flies away to resupply, then returns with a full load.")
             .define("limitedAmmo", false)
         CANNON_ROUNDS = b
-            .comment("25mm cannon rounds per load (the gun fires 20 rounds a second).")
+            .comment("25mm rounds per load (fires 20 a second).")
             .defineInRange("cannon25mmRounds", 1500, 1, 100_000)
         BOFORS_ROUNDS = b
             .comment("40mm Bofors rounds per load.")
@@ -195,49 +183,40 @@ object Ac130Config {
             .comment("105mm howitzer rounds per load.")
             .defineInRange("howitzer105mmRounds", 30, 1, 1_000)
         RESUPPLY_SECONDS = b
-            .comment("Seconds the boss spends at its resupply point before it returns (the flight there and back is extra).")
+            .comment("Seconds spent resupplying (the flight there and back is extra).")
             .defineInRange("resupplySeconds", 40, 0, 3_600)
 
         b.pop().push("ac130_behaviour")
 
         DEFENSIVE_FLARES = b
-            .comment(
-                "Whether the boss releases flares to defeat homing missiles that are tracking it.",
-                "Off by default so player missiles can actually hit. It still breaks away from incoming missiles.",
-                "Read live."
-            )
+            .comment("Whether the boss releases flares against homing missiles. Off by default so missiles can hit.")
             .define("defensiveFlares", false)
 
         FLARE_MISS_CHANCE = b
-            .comment("Only with defensiveFlares: chance (0-1) that the boss fails to notice an incoming homing missile and releases no flares.")
-            .defineInRange("flareMissChance", 0.1, 0.0, 1.0)
+            .comment("With defensiveFlares: chance (percent) of missing an incoming missile and releasing no flares.")
+            .defineInRange("flareMissChance", 10, 0, 100)
 
         TAUNT_ENABLED = b
-            .comment(
-                "Whether the boss may taunt: a rare low pass over the target, dropping \"angel\" flares. Harmless.",
-                "Read live."
-            )
+            .comment("Whether the boss may taunt: a rare low pass dropping \"angel\" flares. Harmless.")
             .define("tauntEnabled", true)
 
         IGNORE_BLOCK_COLLISIONS = b
             .comment(
-                "The boss flies straight through terrain and buildings: no collision damage, no bouncing, no getting stuck,",
-                "and it does not smash blocks on the way. Use this if it keeps crashing into mountains.",
-                "A crippled boss collides normally again so its wreck still crashes and explodes.",
-                "Read live."
+                "Fly straight through terrain and buildings with no collision damage. A crippled boss collides",
+                "normally again so its wreck still crashes."
             )
             .define("ignoreBlockCollisions", false)
 
         BOSS_BAR_RANGE = b
-            .comment("Players within this many blocks of the boss see its boss bar. Read live.")
+            .comment("Players within this many blocks see the boss bar.")
             .defineInRange("bossBarRange", 300, 32, 1024)
 
         XP_REWARD = b
-            .comment("Experience dropped when the boss is defeated. Read live.")
+            .comment("Experience dropped when the boss is defeated.")
             .defineInRange("xpReward", 800, 0, 100_000)
 
         DEBUG_LOGGING = b
-            .comment("Log the AI's targeting and gunnery decisions to the server log. Read live.")
+            .comment("Log the AI's targeting and gunnery decisions to the server log.")
             .define("debugLogging", false)
 
         b.pop()
@@ -249,6 +228,7 @@ object Ac130Config {
             CANNON_DAMAGE_MULT, BOFORS_DAMAGE_MULT, HOWITZER_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, BOFORS_ENABLED, HOWITZER_ENABLED,
             CANNON_SIMULTANEOUS, BOFORS_SIMULTANEOUS, HOWITZER_SIMULTANEOUS,
+            SPLIT_FIRE_CHANCE, FOCUS_FIRE_CHANCE,
             LIMITED_AMMO, CANNON_ROUNDS, BOFORS_ROUNDS, HOWITZER_ROUNDS, RESUPPLY_SECONDS,
             DEFENSIVE_FLARES, FLARE_MISS_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )

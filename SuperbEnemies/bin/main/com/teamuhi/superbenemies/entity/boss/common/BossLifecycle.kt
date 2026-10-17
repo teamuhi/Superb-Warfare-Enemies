@@ -18,6 +18,7 @@ import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.level.storage.loot.LootParams
 import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets
 import net.minecraft.world.level.storage.loot.parameters.LootContextParams
+import net.minecraft.world.phys.Vec3
 
 /**
  * The per-boss values [BossLifecycle] needs. Config-backed values are suppliers so they stay live.
@@ -234,13 +235,18 @@ class BossLifecycle<T>(
     private fun broadcast(translationKey: String, format: ChatFormatting) =
         broadcast(translationKey, Style.EMPTY.applyFormat(format))
 
-    /** Sends [translationKey] in [style] to every player within 1.5 times the boss bar range. */
-    fun broadcast(translationKey: String, style: Style) {
+    /**
+     * Sends [translationKey] in [style] to every player within 1.5 times the boss bar range of the boss, or of
+     * [alsoNear] when given (a boss far away, e.g. rearming, still reaches the players at the fight).
+     */
+    fun broadcast(translationKey: String, style: Style, alsoNear: Vec3? = null) {
         val level = boss.level() as? ServerLevel ?: return
-        val range = settings.bossBarRange() * 1.5
+        val rangeSqr = (settings.bossBarRange() * 1.5).let { it * it }
         val message = Component.translatable(translationKey).withStyle(style)
         for (player in level.players()) {
-            if (player.distanceToSqr(boss) <= range * range) player.sendSystemMessage(message)
+            val near = player.distanceToSqr(boss) <= rangeSqr ||
+                    (alsoNear != null && player.distanceToSqr(alsoNear) <= rangeSqr)
+            if (near) player.sendSystemMessage(message)
         }
     }
 

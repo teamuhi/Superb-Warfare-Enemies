@@ -37,8 +37,14 @@ object ClientSetup {
                 BossConfigScreen(
                     parent,
                     listOf(
-                        ConfigPage(tab("a10"), BossConfig.SPEC, BossConfig.ALL),
-                        ConfigPage(tab("ac130"), Ac130Config.SPEC, Ac130Config.ALL),
+                        ConfigPage(
+                            tab("a10"), BossConfig.SPEC, BossConfig.ALL,
+                            requires = mapOf(BossConfig.FLARE_MISS_CHANCE to BossConfig.DEFENSIVE_FLARES)
+                        ),
+                        ConfigPage(
+                            tab("ac130"), Ac130Config.SPEC, Ac130Config.ALL,
+                            requires = mapOf(Ac130Config.FLARE_MISS_CHANCE to Ac130Config.DEFENSIVE_FLARES)
+                        ),
                         ConfigPage(tab("dummy"), DummyConfig.SPEC, DummyConfig.ALL)
                     )
                 )

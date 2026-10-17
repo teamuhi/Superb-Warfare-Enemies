@@ -421,15 +421,15 @@
     "EnergyCostRate": 256,
     "Increment": 0.7,
     "Decrement": 0.5,
-    "PitchSpeed": 0.3,
-    "YawSpeed": 0.9,
-    "RollSpeed": 0.2,
+    "PitchSpeed": 0.45,
+    "YawSpeed": 1.35,
+    "RollSpeed": 0.4,
     "LiftSpeed": 1.0,
     "SpeedRate": 0.6,
     "ClampPitch": 40,
-    "ClampRoll": 45,
+    "ClampRoll": 65,
     "EngineStartSound": "superbwarfare:ac_130h_engine_start",
-    "EngineSoundVolume" : 0.35
+    "EngineSoundVolume" : 0.08
   },
   "TerrainCompat": [[0, 0, 13.875], [-2.898, 0, -1.0475], [2.898, 0, -1.0475]],
   "EngineSound": "superbwarfare:ac_130h_engine"

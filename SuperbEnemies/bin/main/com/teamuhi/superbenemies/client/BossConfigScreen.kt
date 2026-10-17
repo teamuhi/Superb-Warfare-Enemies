@@ -18,9 +18,15 @@ import net.minecraftforge.common.ForgeConfigSpec
 
 /**
  * One config file shown by [BossConfigScreen] as a tab: its [title], its [spec] and the options to list, in file order.
- * A section header is drawn whenever the first path element changes.
+ * A section header is drawn whenever the first path element changes. [requires] maps an option to the on/off option of
+ * the same page it depends on; while that toggle is off (as currently edited) the option is greyed out and not editable.
  */
-data class ConfigPage(val title: Component, val spec: ForgeConfigSpec, val values: List<ForgeConfigSpec.ConfigValue<*>>)
+data class ConfigPage(
+    val title: Component,
+    val spec: ForgeConfigSpec,
+    val values: List<ForgeConfigSpec.ConfigValue<*>>,
+    val requires: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap()
+)
 
 /**
  * In-game editor for the mod's config files, opened from the Mods screen. Forge 1.20.1 has no automatic config screen,
@@ -236,6 +242,12 @@ class BossConfigScreen(private val parent: Screen, private val pages: List<Confi
         return parse(value, draft) != value.get()
     }
 
+    /** False while the toggle this option depends on ([ConfigPage.requires]) is switched off in the drafts. */
+    private fun isAvailable(value: ForgeConfigSpec.ConfigValue<*>): Boolean {
+        val toggle = pageOf.getValue(value).requires[value] ?: return true
+        return drafts[toggle]?.toBooleanStrictOrNull() ?: toggle.get()
+    }
+
     private fun unsavedCount(): Int = values.count { isDirty(it) }
 
     private fun invalidCount(): Int = values.count { parse(it, drafts[it] ?: "") == null }
@@ -422,11 +434,22 @@ class BossConfigScreen(private val parent: Screen, private val pages: List<Confi
             widget.x = resetButton.x - ELEMENT_GAP - CONTROL_WIDTH
             widget.y = top
 
+            // Greyed out (and not editable) while the option it depends on is off.
+            val available = isAvailable(value)
+            widget.active = available
+            (widget as? EditBox)?.setEditable(available)
+
             val invalid = parse(value, drafts[value] ?: "") == null
             val dirty = invalid || isDirty(value)
             val labelWidth = widget.x - left - ELEMENT_GAP
             val shown = fit((if (dirty) "● " else "") + name, labelWidth)
-            graphics.drawString(font, shown, left, top + 6, if (invalid) ERROR_COLOR else if (dirty) EDITED_COLOR else 0xFFFFFF)
+            val labelColor = when {
+                !available -> MUTED_COLOR
+                invalid -> ERROR_COLOR
+                dirty -> EDITED_COLOR
+                else -> 0xFFFFFF
+            }
+            graphics.drawString(font, shown, left, top + 6, labelColor)
             if (mouseX in left until left + labelWidth && mouseY in top until top + 20 &&
                 mouseY in LIST_TOP until this@BossConfigScreen.height - LIST_BOTTOM_MARGIN
             ) {

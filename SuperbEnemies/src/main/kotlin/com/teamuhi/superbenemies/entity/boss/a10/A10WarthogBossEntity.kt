@@ -97,7 +97,8 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
     }
 
     /** Chat message to the players around the boss (same reach as the crippled / defeated broadcasts). */
-    fun announce(translationKey: String, style: Style) = lifecycle.broadcast(translationKey, style)
+    fun announce(translationKey: String, style: Style, alsoNear: Vec3? = null) =
+        lifecycle.broadcast(translationKey, style, alsoNear)
 
     override fun isCrew(entity: Entity?): Boolean = entity != null && entity === pilot
 
@@ -105,7 +106,7 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
 
     override fun defensiveFlares(): Boolean = BossConfig.DEFENSIVE_FLARES.get()
 
-    override fun flareMissChance(): Double = BossConfig.FLARE_MISS_CHANCE.get()
+    override fun flareMissChance(): Double = BossConfig.FLARE_MISS_CHANCE.get() / 100.0
 
     /** Unit vector of the current heading in the horizontal plane (Minecraft yaw convention). */
     private fun horizontalLook(): Vec3 {
@@ -378,6 +379,7 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
         const val LAUNCH_SPEED = 2.2
         const val LAUNCH_POWER = 1.8f
         const val MAINTAIN_INTERVAL = 10
-        const val CHUNK_TICKET_INTERVAL = 10
+        /** Below the 5 tick timeout of SBW's POST_TELEPORT ticket, so the chunk never drops out between renewals. */
+        const val CHUNK_TICKET_INTERVAL = 4
     }
 }

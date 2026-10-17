@@ -21,8 +21,10 @@ Adds two flying bosses built on Superb Warfare aircraft and flown by an AI crew,
 - Hunts survival/adventure players anywhere in its dimension (`globalAggro`) and never loses them by distance. With `randomTargeting` (default) it draws a **random player (within 700 blocks if any are) at the start of every attack** instead of sticking to one; the victim is never swapped in the middle of a dive or bomb run. Off: it hunts the nearest player (or whoever last hurt it).
 - Cruises about 40 blocks above the target player and circles close (radius 90) and avoids terrain (look-ahead heightmap scan plus Superb Warfare's own orbit autopilot).
 - Attack patterns, chosen at random. Each attack uses **one weapon type only**; a cannon run can repeat up to three times, the others never back to back:
-  - **Gun run** (most common): backs off ~110 blocks, checks that the dive line and the run-out beyond the target clear every ridge (climbing higher, or abandoning the pass, in mountains), then flies a low strafing pass: the nose lines up on the player's **last known position** and it fires long, scattered GAU-8 barrages (no lead) whether or not the player is behind cover, then pulls out with ground clearance. In the bombing variant (`gunRunBombChance`) it **tosses a stick of three Mk 82s on the pull-up**, released the moment the predicted impact sweeps onto the target; if that window is missed it follows up with a separate bomb run.
+  - **Gun run** (most common): backs off ~110 blocks, checks that the dive line and the run-out beyond the target clear every ridge (climbing higher, or abandoning the pass, in mountains), then flies a low strafing pass: the nose lines up on the player's **last known position** and it fires long, scattered GAU-8 barrages (no lead) whether or not the player is behind cover, then pulls out with ground clearance. In the bombing variant (`gunRunWithBombsChance`, its own attack type) it starts the run farther out (220 blocks), **strafes with the GAU-8 from afar, then within ~110 blocks stops firing and drops a stick of three Mk 82s on the player** (steering so the predicted impact sits on the target) before pulling out. If the stick could not go then, it is tossed on the pull-up; if that is missed too, a separate bomb run follows.
   - **Rocket run**: the same approach, but fires a ripple of unguided rockets around the player instead of the cannon.
+  - **Rocket run with homing missiles**: the same rocket dive (no cannon), and it also launches two AGM-65 homing missiles at the player while the rockets are leaving.
+  - **Double gun run**: a gun run, then a pull-out into a **barrel-roll U-turn** back toward the player while climbing to dive height, and a second gun run from the opposite direction.
   - **Missile orbit** (rare, about 1 in 10 attacks): circles the player and fires AGM-65 homing missiles only, one every 60-90 ticks.
   - **Bomb run**: straight pass that predicts where a Mk 82 will land and releases a stick of three bombs straddling the player.
   - **Taunt** (rare, harmless, `tauntEnabled`): either a low flyby right over the player or a higher pass with a full barrel roll, dropping flares on the way. Fires nothing.
@@ -36,11 +38,16 @@ Adds two flying bosses built on Superb Warfare aircraft and flown by an AI crew,
 ### The AC-130 boss (Angel of Death)
 
 - Superb Warfare's AC-130H with a hidden crew: a pilot plus three gunners on the left-side guns, a 25mm M61 cannon, a 40mm Bofors and a 105mm M102 howitzer.
-  Unlimited ammunition by default, `limitedAmmo` works like the A-10's (resupply trip, then it returns). Purple boss bar.
+  Unlimited ammunition by default, `limitedAmmo` works like the A-10's (resupply trip, then it returns). While it is away its boss bar is hidden; chat announces "AC-130 withdraws for now" (orange) when it leaves and "AC-130 begins hunting" (bold red) once it has rearmed. Purple boss bar.
 - **No dives.** It flies a left-hand pylon turn (counter-clockwise, guns facing inward) about 90 blocks above the target. It continuously adjusts the orbit radius so the target stays inside its guns' firing arcs.
 - All three gunners lead the target independently: the 25mm fires long scattered bursts, the 40mm steady rounds, the 105mm one heavy shell per reload (slightly slower above 60% health).
 - It barrages: cover does not stop it. There is no line-of-sight check, so shells smash through roofs and trees (with `blockDamage`). When the target slips just outside a gun's arc, that gun keeps firing as long as its rounds still land within 10-14 blocks.
   By default all guns fire at once; with the `*Simultaneous` options they can take turns instead.
+- **Aggressive and agile:** long 25mm bursts with very short pauses, a wider firing cone and splash window, a faster 105mm in the opening phase, banking up to 65 degrees (faster yaw and roll in its vehicle data) and an orbit flown about 15% tighter.
+- **Fire patterns while circling** (rolled every 15-25 s; `splitFireChance` and `focusFireChance`, 20% each by default, need two usable guns):
+  - **Split fire**: every gun shoots a different target at the same time (the main target plus other players or mobs within 70 blocks; a gun with no victim of its own shoots a spot on a ring around the main one), and the orbit centres on them.
+  - **Focus fire**: all guns pound one fixed spot (where the target stood when it began) with a tight 25mm spread, and the orbit centres on it. A target that keeps moving walks out of it.
+  Both ignore the `*Simultaneous` turn-taking while they last.
 - **Attacks mobs too** (`targetPriority`): by default any living mob (monsters, animals, villagers) within `mobScanRange` counts as well as survival/adventure players,
   and it engages whichever is nearest. Set `targetPriority` to `PLAYERS` (players only) or `MOBS_ONLY` (never players) to change that.
   It prefers whoever last hit it, if that is an allowed target, and only swaps to a much closer target. Mobs must be under open sky, so it does not shell caves.
@@ -86,15 +93,14 @@ dedicated server uses its own.
 | `randomTargeting` | true | Draw a random player as the target at the start of every attack (read live) |
 | `orbitRadius` | 90 | Orbit radius during the barrage and while idling |
 | `cannonDamageMultiplier`, `rocketDamageMultiplier`, `bombDamageMultiplier`, `missileDamageMultiplier` | 1.0 | Damage scaling per weapon (applied when it is created) |
-| `cannonEnabled`, `rocketsEnabled`, `bombsEnabled`, `missilesEnabled` | true | Which weapons the boss may use (`[weapons]`, read live). A disabled weapon's attack is never chosen; with all four off it only circles the target |
-| `cannonChance`, `rocketChance`, `bombChance`, `missileChance` | 50, 20, 20, 10 | Percent share of each weapon's attacks (`[weapons]`, 0-100, read live). Relative weights among the enabled weapons that still have ammo, so they need not sum to 100; 0 = never used. Bombs are only drawn at random from the second phase. An existing config file gets the new options added on load |
-| `gunRunBombChance` | 50 | The gun run has two variants: plain, or bombs tossed on the pull-up (any phase; a separate bomb run follows only if the toss window is missed). Percent chance of the bombing variant (`[weapons]`, 0-100, read live); needs bombs enabled, `bombChance` > 0 and bombs in stock, else the plain variant |
+| `cannonEnabled`, `rocketsEnabled`, `bombsEnabled`, `missilesEnabled` | true | Which weapons the boss may use (`[weapons]`, read live). A disabled weapon removes the attack types that use it: no cannon = no gun runs of either kind, no bombs = no gun run with bombs and no bomb run. With all four off it only circles the target |
+| `gunRunChance`, `gunRunWithBombsChance`, `rocketRunChance`, `bombRunChance`, `missileOrbitChance`, `rocketMissileRunChance`, `doubleGunRunChance` | 25, 25, 20, 20, 10, 10, 10 | Percent share of each **attack type** (`[weapons]`, 0-100, read live): plain gun run, gun run that drops bombs, rocket run, straight bomb run (second phase on), homing missile orbit, rocket run with homing missiles (needs rockets and missiles) and double gun run (needs the cannon). Relative weights among the attack types whose weapons are enabled and have ammo, so they need not sum to 100; 0 = never used |
 | `limitedAmmo` | false | Finite ammunition with a resupply trip (`[ammo]`, read live) |
 | `cannonRounds`, `rockets`, `bombs`, `missiles` | 600, 56, 9, 8 | Munitions per load when `limitedAmmo` is on |
 | `resupplySeconds` | 40 | Time spent at the resupply point (the flight there and back is extra) |
 | `blockDamage` | true | Whether its explosions break blocks (applied when it is created) |
 | `defensiveFlares` | false | Whether it drops flares against homing missiles (off: player missiles can hit; it still breaks away). Taunt flares stop for 10 s after it is hit |
-| `flareMissChance` | 0.1 | With `defensiveFlares`: chance it fails to notice a missile |
+| `flareMissChance` | 10 | With `defensiveFlares`: percent chance (0-100) it fails to notice a missile; greyed out in the config screen while `defensiveFlares` is off. An old decimal value in an existing file is reset to the default on load |
 | `ignoreBlockCollisions` | false | The plane flies through terrain and buildings (no crash damage, no bounce, no block smashing). Read live; a crippled boss collides normally so its wreck still crashes |
 | `bossBarRange` | 300 | Distance at which players see the boss bar |
 | `xpReward` | 500 | Experience dropped on defeat |
@@ -109,18 +115,19 @@ Same meaning as the A-10 options unless noted.
 | `maxHealth` | 3000 | Boss health (applied when it is created) |
 | `cruiseHeightAboveTarget` | 90 | Orbit altitude above the target (40-400) |
 | `globalAggro`, `aggroRange` | true, 256 | Player targeting range, as for the A-10 |
-| `orbitRadius` | 120 | Base orbit radius (60-400); the AI varies it between 0.6x and 1.8x to keep the target in the gun arcs |
+| `orbitRadius` | 120 | Base orbit radius (60-400); the AI varies it between 0.45x and 1.8x (and flies it about 15% tighter) to keep the target in the gun arcs |
 | `targetPriority` | `PLAYERS_AND_MOBS` | What it attacks: `PLAYERS` (players only), `PLAYERS_AND_MOBS` (the nearest player or living mob) or `MOBS_ONLY` (never players). Read live; a target that is no longer allowed is dropped at once |
 | `randomTargeting`, `randomTargetSeconds` | true, 20 | Switch to a random target every ~`randomTargetSeconds` (5-300, +-25%) instead of sticking to the nearest. Players are drawn first, mobs only when no player qualifies. Read live |
 | `mobScanRange` | 128 | Horizontal range (32-256, plus the current orbit radius) in which mobs are considered; unused with `PLAYERS` |
 | `cannon25mmDamageMultiplier`, `bofors40mmDamageMultiplier`, `howitzer105mmDamageMultiplier` | 1.0 | Damage scaling per gun (applied when it is created) |
 | `blockDamage` | true | Whether its shells and crash break blocks (applied when it is created) |
 | `cannon25mmEnabled`, `bofors40mmEnabled`, `howitzer105mmEnabled` | true | Which guns may fire (read live) |
+| `splitFireChance`, `focusFireChance` | 20, 20 | Percent chance (0-100) that the periodic fire pattern roll starts split fire / focus fire; they add up, the rest of the time the guns fire normally. Need at least two usable guns (read live) |
 | `cannon25mmSimultaneous`, `bofors40mmSimultaneous`, `howitzer105mmSimultaneous` | true | Guns marked simultaneous fire together; each unmarked gun fires alone in its own turn (about 3 s; one shell for the 105mm; skipped early if that gun cannot fire). All on = everything at once, all off = one gun at a time. Read live |
 | `limitedAmmo` | false | Finite ammunition with a resupply trip |
 | `cannon25mmRounds`, `bofors40mmRounds`, `howitzer105mmRounds` | 1500, 120, 30 | Rounds per load with `limitedAmmo` |
 | `resupplySeconds` | 40 | Time spent at the resupply point |
-| `defensiveFlares`, `flareMissChance` | false, 0.1 | As for the A-10 |
+| `defensiveFlares`, `flareMissChance` | false, 10 | As for the A-10 (the miss chance is a percent) |
 | `tauntEnabled` | true | Rare low "angel flares" pass (harmless) |
 | `ignoreBlockCollisions` | false | Flies through terrain, as for the A-10 |
 | `bossBarRange`, `xpReward`, `debugLogging` | 300, 800, false | As for the A-10 (debug logs target switches and orbit radius changes) |
