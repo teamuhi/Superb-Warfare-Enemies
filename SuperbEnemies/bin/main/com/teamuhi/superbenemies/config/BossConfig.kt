@@ -35,6 +35,8 @@ object BossConfig {
     val MISSILE_ORBIT_CHANCE: ForgeConfigSpec.IntValue
     val ROCKET_MISSILE_RUN_CHANCE: ForgeConfigSpec.IntValue
     val DOUBLE_GUN_RUN_CHANCE: ForgeConfigSpec.IntValue
+    val CANNON_ROCKET_STALL_CHANCE: ForgeConfigSpec.IntValue
+    val ROCKET_BOMB_STALL_CHANCE: ForgeConfigSpec.IntValue
 
     val LIMITED_AMMO: ForgeConfigSpec.BooleanValue
     val CANNON_ROUNDS: ForgeConfigSpec.IntValue
@@ -140,8 +142,14 @@ object BossConfig {
             .comment("Weight (percent) of rocket runs that also launch missiles. Needs rocketsEnabled and missilesEnabled.")
             .defineInRange("rocketMissileRunChance", 10, 0, 100)
         DOUBLE_GUN_RUN_CHANCE = b
-            .comment("Weight (percent) of double gun runs: a gun run, a barrel-roll U-turn, then a second run. Needs cannonEnabled.")
+            .comment("Weight (percent) of double gun runs: a gun run, a climbing stall turn, then a second run. Needs cannonEnabled.")
             .defineInRange("doubleGunRunChance", 10, 0, 100)
+        CANNON_ROCKET_STALL_CHANCE = b
+            .comment("Weight (percent) of cannon-to-rocket runs: a gun run, a climbing stall turn, then a rocket run. Needs cannonEnabled and rocketsEnabled.")
+            .defineInRange("cannonRocketStallChance", 10, 0, 100)
+        ROCKET_BOMB_STALL_CHANCE = b
+            .comment("Weight (percent) of rocket-to-bomb runs: a rocket run, a climbing stall turn, then a bomb pass. Needs rocketsEnabled and bombsEnabled.")
+            .defineInRange("rocketBombStallChance", 10, 0, 100)
 
         b.pop().push("ammo")
 
@@ -205,7 +213,7 @@ object BossConfig {
             CANNON_DAMAGE_MULT, ROCKET_DAMAGE_MULT, BOMB_DAMAGE_MULT, MISSILE_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, ROCKETS_ENABLED, BOMBS_ENABLED, MISSILES_ENABLED,
             GUN_RUN_CHANCE, GUN_RUN_BOMB_CHANCE, ROCKET_RUN_CHANCE, BOMB_RUN_CHANCE, MISSILE_ORBIT_CHANCE,
-            ROCKET_MISSILE_RUN_CHANCE, DOUBLE_GUN_RUN_CHANCE,
+            ROCKET_MISSILE_RUN_CHANCE, DOUBLE_GUN_RUN_CHANCE, CANNON_ROCKET_STALL_CHANCE, ROCKET_BOMB_STALL_CHANCE,
             LIMITED_AMMO, CANNON_ROUNDS, ROCKET_COUNT, BOMB_COUNT, MISSILE_COUNT, RESUPPLY_SECONDS,
             DEFENSIVE_FLARES, FLARE_MISS_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )

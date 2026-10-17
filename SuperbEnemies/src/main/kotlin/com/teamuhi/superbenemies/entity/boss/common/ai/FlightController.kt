@@ -87,13 +87,15 @@ class FlightController(private val boss: VehicleEntity) {
      * @param airBrake extends the speed brakes (SBW downInputDown)
      * @param converge when the nose is within [CONVERGE_ANGLE] degrees, also nudges xRot/yRot directly, the same
      *        trick aircraftLoiter uses, so the guns can settle on the target
+     * @param stallGuard when slow, adds power and refuses a climb. Off only for the stall turn, which hangs on purpose
      */
     fun steer(
         desiredDir: Vec3,
         throttle: Float,
         maxBank: Float = 60f,
         airBrake: Boolean = false,
-        converge: Boolean = false
+        converge: Boolean = false,
+        stallGuard: Boolean = true
     ) {
         // The brain flies the plane now, not SBW's orbit autopilot.
         if (boss.loiterActive) boss.loiterActive = false
@@ -103,7 +105,7 @@ class FlightController(private val boss: VehicleEntity) {
 
         var wantedPitch = FlightMath.pitch(dir)
         var wantedThrottle = throttle
-        if (speed < STALL_SPEED) {
+        if (stallGuard && speed < STALL_SPEED) {
             // Stall guard: add power and never ask for a climb while this slow.
             wantedThrottle = max(wantedThrottle, STALL_THROTTLE)
             wantedPitch = max(wantedPitch, STALL_RECOVERY_PITCH)
@@ -137,6 +139,17 @@ class FlightController(private val boss: VehicleEntity) {
      */
     fun applyRoll(side: Double) {
         boss.deltaRot = (-side.coerceIn(-1.0, 1.0) * MAX_ROLL_RATE).toFloat()
+    }
+
+    /**
+     * Swings the nose toward [desiredDir]'s heading by at most [maxStepDeg] per tick by writing the yaw directly, for
+     * the stall turn: SBW's yaw rate is capped by the roll angle and the wings level out near vertical, so a
+     * rudder-only pivot at the top of a climb would take far too long. Call after [steer] (which still commands pitch).
+     */
+    fun pivotYaw(desiredDir: Vec3, maxStepDeg: Float) {
+        if (desiredDir.lengthSqr() < 1.0e-6) return
+        val yawError = Mth.wrapDegrees(FlightMath.yaw(desiredDir) - boss.yRot)
+        boss.yRot += yawError.coerceIn(-maxStepDeg, maxStepDeg)
     }
 
     /** Wings nearly level, nose up, full power. Used by the terrain guard and the pull-out. */

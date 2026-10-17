@@ -6,7 +6,9 @@ import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.ai.goal.Goal
 import net.minecraft.world.entity.player.Player
 import java.util.EnumSet
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 
 /**
  * Turns the dummy to face the nearest threat the way a player would: the nearest boss within
@@ -16,11 +18,19 @@ import kotlin.math.hypot
  * Body, head and pitch are turned directly (vanilla's look control only moves the head and adds an offset). While the
  * dummy is following a path (running to cover) only the head and pitch turn, so it faces where it is running.
  * The threat is re-picked every [SCAN_INTERVAL] ticks; aiming happens every tick.
+ *
+ * In ROAM mode ([PlayerDummyEntity.roaming]) the head instead traces the walking path (see [traceWalkingPath]) and,
+ * standing with no threat, glances around; with a threat it still faces it while standing.
  */
 class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
 
     private var threat: Entity? = null
     private var nextScanTick = 0
+
+    private var glanceUntil = 0
+    private var glanceX = 0.0
+    private var glanceY = 0.0
+    private var glanceZ = 0.0
 
     init {
         flags = EnumSet.of(Flag.LOOK)
@@ -31,18 +41,24 @@ class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
     override fun canUse(): Boolean {
         if (dummy.isPassenger || !dummy.isAlive) return false
         rescanIfDue()
-        return threat != null
+        return threat != null || dummy.roaming
     }
 
     override fun canContinueToUse(): Boolean = canUse()
 
     override fun stop() {
         threat = null
+        glanceUntil = 0
     }
 
     override fun tick() {
         rescanIfDue()
-        val target = threat ?: return
+        if (dummy.roaming && dummy.navigation.isInProgress && traceWalkingPath()) return
+        val target = threat
+        if (target == null) {
+            if (dummy.roaming) glanceAround()
+            return
+        }
 
         // Players are looked at in the face, a (large) aircraft at its centre.
         val aimY = if (target is Player) target.eyeY else target.y + target.bbHeight * 0.5
@@ -65,6 +81,38 @@ class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
         dummy.xRot = Mth.approachDegrees(dummy.xRot, wantedPitch, MAX_TURN_PER_TICK)
     }
 
+    /**
+     * ROAM, walking: the head looks at a path node [TRACE_LOOK_AHEAD] nodes past the one being approached, at eye
+     * height, so it turns into corners a moment before the body does. False when the path has no usable node (the
+     * threat logic then applies).
+     */
+    private fun traceWalkingPath(): Boolean {
+        val path = dummy.navigation.path ?: return false
+        val count = path.nodeCount
+        if (count == 0) return false
+        val node = path.getNode((path.nextNodeIndex + TRACE_LOOK_AHEAD).coerceAtMost(count - 1))
+        val x = node.x + 0.5
+        val z = node.z + 0.5
+        if (hypot(x - dummy.x, z - dummy.z) < TRACE_MIN_DISTANCE) return false
+        dummy.lookControl.setLookAt(x, dummy.eyeY + (node.y - dummy.y).coerceIn(-1.0, 1.0), z, TRACE_TURN_SPEED, TRACE_PITCH_SPEED)
+        return true
+    }
+
+    /** ROAM, standing and with no threat around: now and then looks at a random spot ahead of the body, like a player. */
+    private fun glanceAround() {
+        val now = dummy.tickCount
+        if (now >= glanceUntil) {
+            val rng = dummy.getRandom()
+            glanceUntil = now + GLANCE_MIN_TICKS + rng.nextInt(GLANCE_EXTRA_TICKS)
+            val yaw = Math.toRadians((dummy.yBodyRot + (rng.nextFloat() * 2f - 1f) * GLANCE_YAW).toDouble())
+            val rise = (rng.nextFloat() * 2f - 1f) * GLANCE_RISE
+            glanceX = dummy.x - sin(yaw) * GLANCE_DISTANCE
+            glanceY = dummy.eyeY + rise
+            glanceZ = dummy.z + cos(yaw) * GLANCE_DISTANCE
+        }
+        dummy.lookControl.setLookAt(glanceX, glanceY, glanceZ, GLANCE_TURN_SPEED, GLANCE_PITCH_SPEED)
+    }
+
     private fun rescanIfDue() {
         val now = dummy.tickCount
         if (now < nextScanTick) {
@@ -83,5 +131,18 @@ class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
         const val MAX_TURN_PER_TICK = 25f
         const val MAX_PITCH = 60f
         const val RAD_TO_DEG = 57.29577951308232
+
+        const val TRACE_LOOK_AHEAD = 2
+        const val TRACE_MIN_DISTANCE = 0.6
+        const val TRACE_TURN_SPEED = 30f
+        const val TRACE_PITCH_SPEED = 20f
+
+        const val GLANCE_MIN_TICKS = 20
+        const val GLANCE_EXTRA_TICKS = 41
+        const val GLANCE_YAW = 60f
+        const val GLANCE_RISE = 1.5f
+        const val GLANCE_DISTANCE = 8.0
+        const val GLANCE_TURN_SPEED = 12f
+        const val GLANCE_PITCH_SPEED = 8f
     }
 }

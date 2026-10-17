@@ -27,6 +27,7 @@ object DummyConfig {
     val MAX_HEALTH: ForgeConfigSpec.IntValue
     val INVULNERABLE: ForgeConfigSpec.BooleanValue
     val SHOW_HEALTH_TAG: ForgeConfigSpec.BooleanValue
+    val SHOW_DEATH_MESSAGE: ForgeConfigSpec.BooleanValue
     val BOSSES_TARGET_DUMMY: ForgeConfigSpec.BooleanValue
 
     val MOVEMENT: ForgeConfigSpec.EnumValue<DummyMovement>
@@ -67,6 +68,12 @@ object DummyConfig {
                 "e.g. \"Player Dummy 18.5 / 20 (-4.5)\". Read live."
             )
             .define("showHealthTag", true)
+
+        SHOW_DEATH_MESSAGE = b
+            .comment(
+                "Announce in chat when a dummy is killed, e.g. \"Player Dummy was shot by A-10 Warthog\". Read live."
+            )
+            .define("showDeathMessage", true)
 
         BOSSES_TARGET_DUMMY = b
             .comment(
@@ -123,7 +130,7 @@ object DummyConfig {
         SPEC = b.build()
 
         ALL = listOf(
-            MAX_HEALTH, INVULNERABLE, SHOW_HEALTH_TAG, BOSSES_TARGET_DUMMY,
+            MAX_HEALTH, INVULNERABLE, SHOW_HEALTH_TAG, SHOW_DEATH_MESSAGE, BOSSES_TARGET_DUMMY,
             MOVEMENT, STRAFE_RADIUS, ROAM_DISTANCE, ROAM_PAUSE_SECONDS, STRAFE_JUMPING, STRAFE_SPRINTING, STRAFE_CROUCHING, HIDE_FROM_BOSSES
         )
     }

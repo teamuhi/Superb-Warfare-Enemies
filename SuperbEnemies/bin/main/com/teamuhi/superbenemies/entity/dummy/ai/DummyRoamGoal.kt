@@ -29,7 +29,8 @@ import kotlin.math.sin
  * towards the anchor are tried. Without an anchor (or an unloaded anchor chunk) there is no leash bias at all.
  *
  * Config options are read live, and all state is per instance. The look goal turns only the head while a path is in
- * progress, so the body faces the walking direction.
+ * progress, so the body faces the walking direction. While [PlayerDummyEntity.roaming] is set, the look goal makes the
+ * head trace the path ahead instead of staring at the threat, and glance around during pauses.
  */
 class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
 
@@ -62,9 +63,11 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
         phase = Phase.PAUSE
         pauseUntil = dummy.tickCount // first spot straight away
         sprintLeg = false
+        dummy.roaming = true
     }
 
     override fun stop() {
+        dummy.roaming = false
         dummy.navigation.stop()
         dummy.isSprinting = false
         dummy.setCrouched(false)

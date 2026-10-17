@@ -60,6 +60,9 @@ class PlayerDummyEntity(type: EntityType<out PathfinderMob>, level: Level) : Pat
     /** Until this tick the hide goal does not start again after it failed to find any cover. */
     var hideRetryUntil = 0
 
+    /** True while [DummyRoamGoal] runs; the look goal then traces the walking path instead of staring at the threat. */
+    var roaming = false
+
     private val dummyMove = DummyMoveControl(this)
 
     // --- health tag / invulnerability bookkeeping (server side, not saved) ---
@@ -234,6 +237,22 @@ class PlayerDummyEntity(type: EntityType<out PathfinderMob>, level: Level) : Pat
         val dealt = before - health
         if (result && dealt > 0f) lastHit = dealt
         return result
+    }
+
+    /**
+     * Announces the kill in chat when `showDeathMessage` is on. The death message names the victim by its display name,
+     * which is the health tag while that is shown, so the tag is lifted for the moment the message is built.
+     */
+    override fun die(source: DamageSource) {
+        val firstDeath = !isRemoved && !dead
+        super.die(source)
+        val server = level().server ?: return
+        if (!firstDeath || !DummyConfig.SHOW_DEATH_MESSAGE.get()) return
+        val tag = customName
+        customName = null
+        val message = combatTracker.deathMessage
+        customName = tag
+        server.playerList.broadcastSystemMessage(message, false)
     }
 
     // ================================================================================================== interaction / loot

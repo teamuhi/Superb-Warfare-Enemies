@@ -24,8 +24,11 @@ enum class BossState {
     /** Recover from the dive. */
     PULL_OUT,
 
-    /** Between the two passes of a double gun run: a barrel-roll U-turn back toward the target, climbing to dive height. */
-    U_TURN,
+    /**
+     * Between the two passes of a double gun run: a stall turn. Climbs nearly straight up above the ridges, hangs, swings
+     * round on the spot to face the target and drops into the second pass.
+     */
+    STALL_TURN,
 
     /** Harmless show-off pass over the target: a low flyby or a barrel roll, dropping flares. */
     TAUNT,

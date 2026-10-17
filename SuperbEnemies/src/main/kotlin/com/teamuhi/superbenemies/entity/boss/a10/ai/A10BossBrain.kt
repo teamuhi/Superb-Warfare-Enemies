@@ -43,7 +43,8 @@ import kotlin.math.sin
  * Attack flow: INGRESS -> selector -> (ORBIT_BARRAGE | BOMB_RUN | CLIMB_FOR_DIVE -> GUN_DIVE -> PULL_OUT) -> EXTEND
  * -> selector ... EVADE interrupts any state and returns to it; CRIPPLED is terminal.
  *
- * The double gun run flies GUN_DIVE -> PULL_OUT -> U_TURN -> GUN_DIVE -> PULL_OUT -> EXTEND; the rocket run with
+ * The double gun run flies GUN_DIVE -> PULL_OUT -> STALL_TURN -> GUN_DIVE -> PULL_OUT -> EXTEND (the cannon-to-rocket and
+ * rocket-to-bomb runs are the same flight with another weapon on the second pass); the rocket run with
  * missiles is a rocket CLIMB_FOR_DIVE -> GUN_DIVE that also launches AGM-65s.
  *
  * The bombing variant of the gun run strafes with the cannon from afar and, inside [BOMB_PASS_RANGE], stops firing and
@@ -103,8 +104,24 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private var missileSalvoPending = false
     private var diveMissilesLeft = 0
 
-    /** Double gun run: second passes still to fly after the current one (see [tickPullOut], [tickUTurn]). */
+    /** Stall-turn attacks: a second pass is still to fly after the current one (see [tickPullOut], [tickStallTurn]). */
     private var secondPassPending = false
+
+    /** The weapon of that second pass (the cannon for the plain double gun run). */
+    private var secondPassWeapon = DiveWeapon.CANNON
+
+    /**
+     * The current dive is the second pass of a stall-turn attack. It starts slow (the plane hung at the top of the
+     * climb), so it pulls out earlier and holds more power (see [pullOutBase], [tickGunDive]).
+     */
+    private var stallPass = false
+
+    // --- stall turn (between the two passes of a double gun run) ---
+    private var stallPhase = StallPhase.CLIMB
+    private var stallPhaseTicks = 0
+
+    /** Heading held through the climb: the velocity direction is meaningless once the climb is near vertical. */
+    private var stallHeading: Vec3? = null
 
     /** Set when the current gun run is the bombing variant (cannon from afar, bombs when close; see [tickGunDive]). */
     private var bombComboPending = false
@@ -172,13 +189,17 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     /**
      * Each attack uses one weapon type, except ROCKET_MISSILE_RUN (rockets and missiles together). ORBIT_BARRAGE is the
-     * homing missile attack, DOUBLE_GUN_RUN is a gun run, a roll U-turn and a second gun run; TAUNT fires nothing.
+     * homing missile attack, DOUBLE_GUN_RUN is a gun run, a stall turn and a second gun run; CANNON_ROCKET_STALL
+     * and ROCKET_BOMB_STALL are the same shape with a different weapon on each pass (cannon then rockets, rockets
+     * then bombs); TAUNT fires nothing.
      */
     private enum class Attack(val entryState: BossState) {
         GUN_DIVE(BossState.CLIMB_FOR_DIVE),
         ROCKET_RUN(BossState.CLIMB_FOR_DIVE),
         ROCKET_MISSILE_RUN(BossState.CLIMB_FOR_DIVE),
         DOUBLE_GUN_RUN(BossState.CLIMB_FOR_DIVE),
+        CANNON_ROCKET_STALL(BossState.CLIMB_FOR_DIVE),
+        ROCKET_BOMB_STALL(BossState.CLIMB_FOR_DIVE),
         ORBIT_BARRAGE(BossState.ORBIT_BARRAGE),
         BOMB_RUN(BossState.BOMB_RUN),
         TAUNT(BossState.TAUNT)
@@ -186,8 +207,11 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     private enum class TauntPhase { SETUP, RUN }
 
-    /** The only weapon fired during a CLIMB_FOR_DIVE -> GUN_DIVE run. */
-    private enum class DiveWeapon { CANNON, ROCKETS }
+    /** Stall turn: straight up, the tail swings round while the nose hangs up, then the nose drops onto the target. */
+    private enum class StallPhase { CLIMB, SWING, DROP }
+
+    /** The only weapon fired during a CLIMB_FOR_DIVE -> GUN_DIVE run. BOMBS: lines up, then a dive-bomb pass (see [bombPassAim]). */
+    private enum class DiveWeapon { CANNON, ROCKETS, BOMBS }
 
     private enum class BombPhase { SETUP, RUN, STICK }
 
@@ -221,7 +245,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
             BossState.CLIMB_FOR_DIVE -> if (target != null) tickClimbForDive(target)
             BossState.GUN_DIVE -> tickGunDive(target)
             BossState.PULL_OUT -> tickPullOut()
-            BossState.U_TURN -> if (target != null) tickUTurn(target)
+            BossState.STALL_TURN -> if (target != null) tickStallTurn(target)
             BossState.TAUNT -> if (target != null) tickTaunt(target)
             BossState.RESUPPLY -> tickResupply()
             BossState.EXTEND -> tickExtend(target)
@@ -234,7 +258,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     private fun BossState.needsTarget(): Boolean =
         this == BossState.ORBIT_BARRAGE || this == BossState.BOMB_RUN ||
-                this == BossState.CLIMB_FOR_DIVE || this == BossState.U_TURN || this == BossState.TAUNT
+                this == BossState.CLIMB_FOR_DIVE || this == BossState.STALL_TURN || this == BossState.TAUNT
 
     // ================================================================================================== persistence
 
@@ -313,7 +337,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     /** Runs that must not change victim half way: the aim point and the corridor checks were planned for one target. */
     private fun targetLocked(): Boolean =
         state == BossState.CLIMB_FOR_DIVE || state == BossState.GUN_DIVE || state == BossState.PULL_OUT ||
-                state == BossState.U_TURN || state == BossState.BOMB_RUN
+                state == BossState.STALL_TURN || state == BossState.BOMB_RUN
 
     private fun candidates(level: ServerLevel): MutableList<LivingEntity> {
         val aggro = if (BossConfig.GLOBAL_AGGRO.get()) Double.MAX_VALUE else BossConfig.AGGRO_RANGE.get().toDouble()
@@ -459,7 +483,10 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 previousMiss = Double.MAX_VALUE
             }
 
-            BossState.CLIMB_FOR_DIVE -> extraClimb = 0.0
+            BossState.CLIMB_FOR_DIVE -> {
+                extraClimb = 0.0
+                stallPass = false
+            }
 
             BossState.GUN_DIVE -> {
                 aim?.let { lastKnownPos = it.position() } // the pilot has eyes on the target as the run starts
@@ -468,17 +495,19 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 diveRocketsLeft = randomBetween(DIVE_ROCKETS_MIN, DIVE_ROCKETS_MAX)
                 nextDiveRocketTick = 0
                 diveMissilesLeft = if (missileSalvoPending) DIVE_MISSILES else 0
-                tossArmed = bombComboPending && bombsAvailable() && diveWeapon == DiveWeapon.CANNON
+                tossArmed = bombsAvailable() &&
+                        ((bombComboPending && diveWeapon == DiveWeapon.CANNON) || diveWeapon == DiveWeapon.BOMBS)
                 tossPrimed = false
                 tossReleased = false
                 previousTossAlong = 0.0
                 bombAimShift = Vec3.ZERO
             }
 
-            BossState.U_TURN -> {
-                rollDone = false
-                rollSide = if (boss.getRandom().nextBoolean()) 1.0 else -1.0
-                startRoll()
+            BossState.STALL_TURN -> {
+                stallPhase = StallPhase.CLIMB
+                stallPhaseTicks = 0
+                stallHeading = currentHeading()
+                stallPass = true // the dive that follows is the slow second pass
             }
 
             BossState.RESUPPLY -> {
@@ -551,14 +580,19 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         var missileOrbit = if (missiles) BossConfig.MISSILE_ORBIT_CHANCE.get() else 0
         var rocketMissile = if (rockets && missiles) BossConfig.ROCKET_MISSILE_RUN_CHANCE.get() else 0
         var doubleGun = if (cannon) BossConfig.DOUBLE_GUN_RUN_CHANCE.get() else 0
+        var cannonRocket = if (cannon && rockets) BossConfig.CANNON_ROCKET_STALL_CHANCE.get() else 0
+        var rocketBomb = if (rockets && bombs) BossConfig.ROCKET_BOMB_STALL_CHANCE.get() else 0
         // Finite ammo: an attack whose weapon is spent is skipped; with every allowed attack spent the boss goes to rearm.
         if (BossConfig.LIMITED_AMMO.get()) {
-            val hadWeapons = gunPlain + gunBombing + rocketRun + bombRun + missileOrbit + rocketMissile + doubleGun > 0
-            if (!fire.hasAmmo(FireControl.CANNON)) { gunPlain = 0; gunBombing = 0; doubleGun = 0 }
-            if (!fire.hasAmmo(FireControl.BOMB)) { gunBombing = 0; bombRun = 0 }
-            if (!fire.hasAmmo(FireControl.ROCKET)) { rocketRun = 0; rocketMissile = 0 }
+            val hadWeapons = gunPlain + gunBombing + rocketRun + bombRun + missileOrbit + rocketMissile + doubleGun +
+                    cannonRocket + rocketBomb > 0
+            if (!fire.hasAmmo(FireControl.CANNON)) { gunPlain = 0; gunBombing = 0; doubleGun = 0; cannonRocket = 0 }
+            if (!fire.hasAmmo(FireControl.BOMB)) { gunBombing = 0; bombRun = 0; rocketBomb = 0 }
+            if (!fire.hasAmmo(FireControl.ROCKET)) { rocketRun = 0; rocketMissile = 0; cannonRocket = 0; rocketBomb = 0 }
             if (!fire.hasAmmo(FireControl.MISSILE)) { missileOrbit = 0; rocketMissile = 0 }
-            if (hadWeapons && gunPlain + gunBombing + rocketRun + bombRun + missileOrbit + rocketMissile + doubleGun == 0) {
+            if (hadWeapons && gunPlain + gunBombing + rocketRun + bombRun + missileOrbit + rocketMissile + doubleGun +
+                cannonRocket + rocketBomb == 0
+            ) {
                 enter(BossState.RESUPPLY)
                 return
             }
@@ -569,6 +603,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         weights[Attack.ROCKET_RUN] = rocketRun
         weights[Attack.ROCKET_MISSILE_RUN] = rocketMissile
         weights[Attack.DOUBLE_GUN_RUN] = doubleGun
+        weights[Attack.CANNON_ROCKET_STALL] = cannonRocket
+        weights[Attack.ROCKET_BOMB_STALL] = rocketBomb
         weights[Attack.BOMB_RUN] = bombRun
         weights[Attack.ORBIT_BARRAGE] = missileOrbit
         weights.values.removeIf { it <= 0 }
@@ -593,10 +629,19 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 roll -= weight
             }
         }
-        val rocketAttack = attack == Attack.ROCKET_RUN || attack == Attack.ROCKET_MISSILE_RUN
+        // The first pass's weapon; the stall-turn attacks name the second pass's weapon separately.
+        val rocketAttack = attack == Attack.ROCKET_RUN || attack == Attack.ROCKET_MISSILE_RUN ||
+                attack == Attack.ROCKET_BOMB_STALL
         diveWeapon = if (rocketAttack) DiveWeapon.ROCKETS else DiveWeapon.CANNON
         missileSalvoPending = attack == Attack.ROCKET_MISSILE_RUN
-        secondPassPending = attack == Attack.DOUBLE_GUN_RUN
+        secondPassPending = attack == Attack.DOUBLE_GUN_RUN || attack == Attack.CANNON_ROCKET_STALL ||
+                attack == Attack.ROCKET_BOMB_STALL
+        secondPassWeapon = when (attack) {
+            Attack.CANNON_ROCKET_STALL -> DiveWeapon.ROCKETS
+            Attack.ROCKET_BOMB_STALL -> DiveWeapon.BOMBS
+            else -> DiveWeapon.CANNON
+        }
+        stallPass = false
         gunStreak = if (attack == Attack.GUN_DIVE) gunStreak + 1 else 0
         // Each gun run picks its variant up front; the plain one (and every other attack) clears the flag.
         bombComboPending = attack == Attack.GUN_DIVE && boss.getRandom().nextInt(gunPlain + gunBombing) < gunBombing
@@ -773,9 +818,14 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private fun diveClearance(from: Vec3, known: Vec3): Double {
         val ground = max(guard.terrainAt(known.x, known.z, known.y), known.y)
         return guard.diveClearance(
-            from, Vec3(known.x, ground + 0.5, known.z), ground + PULL_OUT_BASE, known.y + UNKNOWN_TERRAIN_OFFSET
+            from, Vec3(known.x, ground + 0.5, known.z), ground + pullOutBase(), known.y + UNKNOWN_TERRAIN_OFFSET
         )
     }
+
+    /** Height above the target ground at which the pull-out bottoms out; the slow second pass of a stall turn keeps more. */
+    private fun pullOutBase(): Double = if (stallPass) STALL_PULL_OUT_BASE else PULL_OUT_BASE
+
+    private fun pullOutSpeedFactor(): Double = if (stallPass) STALL_PULL_OUT_SPEED_FACTOR else PULL_OUT_SPEED_FACTOR
 
     /**
      * Climbs away from the target to the dive start height, then checks that the straight dive line (and the run-out
@@ -822,13 +872,16 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         val aimPoint = when {
             bombPass -> bombPassAim(known)
             diveWeapon == DiveWeapon.CANNON -> fire.cannonAimAt(razePoint(known))
+            diveWeapon == DiveWeapon.BOMBS -> fire.cannonAimAt(known) // lines up; the bombs only go inside BOMB_PASS_RANGE
             target != null -> fire.cannonLeadPoint(target)
             else -> fire.cannonAimAt(known)
         }
         val wanted = aimPoint.subtract(origin)
 
-        // Unguarded on purpose: the dive goes low by design and ends at the pull-out altitude below.
-        fly(wanted, DIVE_THROTTLE, maxBank = 70f, airBrake = speed > DIVE_BRAKE_SPEED, converge = true, guarded = false)
+        // Unguarded on purpose: the dive goes low by design and ends at the pull-out altitude below. The slow second
+        // pass of a stall turn keeps more power on so it does not sink into the ground at low speed.
+        val throttle = if (stallPass) STALL_DIVE_THROTTLE else DIVE_THROTTLE
+        fly(wanted, throttle, maxBank = 70f, airBrake = speed > DIVE_BRAKE_SPEED, converge = true, guarded = false)
 
         // Mountains: re-check the dive line every few ticks and break off while there is still room to pull out.
         if (boss.tickCount >= nextCorridorCheckTick) {
@@ -857,6 +910,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 diveRocketsLeft--
                 nextDiveRocketTick = boss.tickCount + ROCKET_INTERVAL
             }
+
+            DiveWeapon.BOMBS -> {} // dropped by the bomb pass / toss below
         }
 
         // Rocket run with homing missiles: the AGM-65s leave while the rockets are being fired (FireControl paces them).
@@ -867,7 +922,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         }
 
         val ground = max(guard.terrainAt(known.x, known.z, known.y), known.y)
-        val basePullOut = ground + PULL_OUT_BASE + PULL_OUT_SPEED_FACTOR * speed * speed
+        val basePullOut = ground + pullOutBase() + pullOutSpeedFactor() * speed * speed
         // Also respect terrain on the way (a mountain beside the target), but never demand more than a bounded raise.
         val pullOutAltitude = max(basePullOut, min(guard.floorAhead(known.y + UNKNOWN_TERRAIN_OFFSET), basePullOut + 60.0))
         val passedTarget = FlightMath.horizontalDistance(boss.position(), known) < 120.0 &&
@@ -1021,10 +1076,10 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         val v = boss.deltaMovement
         val climbAngle = Math.toDegrees(atan2(v.y, hypot(v.x, v.z)))
         if (climbAngle >= PULL_OUT_CLIMB_ANGLE || stateTicks > PULL_OUT_TIMEOUT) {
-            // Double gun run: the first pass is done, roll round for the second one.
+            // Double gun run: the first pass is done, stall-turn round for the second one.
             if (secondPassPending) {
                 secondPassPending = false
-                enter(BossState.U_TURN)
+                enter(BossState.STALL_TURN)
             } else {
                 enter(BossState.EXTEND)
             }
@@ -1032,30 +1087,96 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         if (tossArmed && !tossReleased) tryToss()
     }
 
+    /** The second pass's weapon is still enabled and in stock (read live; the first pass may have spent it). */
+    private fun secondPassReady(): Boolean = when (secondPassWeapon) {
+        DiveWeapon.CANNON -> BossConfig.CANNON_ENABLED.get() && fire.hasAmmo(FireControl.CANNON)
+        DiveWeapon.ROCKETS -> BossConfig.ROCKETS_ENABLED.get() && fire.hasAmmo(FireControl.ROCKET)
+        DiveWeapon.BOMBS -> bombsAvailable()
+    }
+
+    private fun enterStallPhase(next: StallPhase) {
+        stallPhase = next
+        stallPhaseTicks = 0
+    }
+
     /**
-     * Second half of the double gun run: from the pull-out the plane turns back toward the target while climbing back to
-     * dive height, with one full barrel roll on the way round. Once it points at the target again, is high enough and
-     * the dive line is clear, it dives straight into the second pass ([BossState.GUN_DIVE], cannon only); the target is
-     * then attacked from the opposite side of the first pass. Abandoned (to EXTEND) when the line is blocked, the turn
-     * ends too close, or it takes too long.
+     * Second half of the double gun run: a stall turn (hammerhead) instead of a wide U-turn, so the plane stays over the
+     * spot where the pull-out ended and never swings out over unseen terrain.
+     *  - CLIMB: nose near vertical on the pull-out heading at full power, until the height it will coast up to is dive
+     *    height (capped so the dive is no steeper than [STALL_MAX_DIVE_SLOPE]) or it hangs (slow), and it clears the
+     *    terrain ahead by [STALL_ROTATE_CLEARANCE]. In mountains it climbs on until above the ridge, or gives the pass up
+     *    when clearing the ridge would mean a dive steeper than allowed.
+     *  - SWING: power cut, nose held up while the yaw is swung round to the target at [STALL_YAW_STEP] degrees per tick.
+     *  - DROP: the nose falls onto a [STALL_DIVE_PITCH] degree descent at the target; once it points there and the dive
+     *    line is clear it flies the second pass ([BossState.GUN_DIVE], cannon only) from the opposite side.
+     * Abandoned (to EXTEND) when the climb never gets above the terrain, the line is blocked, the target is too close
+     * for a dive, or a phase takes too long.
      */
-    private fun tickUTurn(target: Entity) {
+    private fun tickStallTurn(target: Entity) {
         val known = lastKnownPos ?: target.position()
-        val diveTop = min(cruiseAltitude() + DIVE_TOP_EXTRA, boss.level().maxBuildHeight + 60.0)
-        val altitudeError = diveTop - boss.y
         val toKnown = towards(known)
-        val aligned = currentHeading().dot(toKnown) > U_TURN_ALIGNED_DOT
-        val distance = FlightMath.horizontalDistance(boss.position(), known)
+        val heading = stallHeading ?: currentHeading().also { stallHeading = it }
+        stallPhaseTicks++
 
-        fly(FlightMath.tilted(toKnown, (altitudeError * 0.12).coerceIn(-4.0, 22.0)), 2.6f, maxBank = U_TURN_MAX_BANK)
-        if (rolling) continueRoll()
-
-        if (!rolling && aligned && altitudeError < U_TURN_READY_ALTITUDE_ERROR && distance > U_TURN_MIN_DISTANCE) {
-            if (diveClearance(boss.position(), known) >= DIVE_CLEARANCE_MIN) enter(BossState.GUN_DIVE) else enter(BossState.EXTEND)
+        if (stateTicks > STALL_TURN_TIMEOUT) {
+            enter(BossState.EXTEND)
             return
         }
-        // Too close to start a run (the turn came out wide or the plane is still low), or never finished.
-        if (stateTicks > U_TURN_TIMEOUT || (!rolling && aligned && distance <= U_TURN_MIN_DISTANCE)) enter(BossState.EXTEND)
+
+        when (stallPhase) {
+            StallPhase.CLIMB -> {
+                flight.steer(
+                    FlightMath.tilted(heading, STALL_CLIMB_PITCH), 3.0f, maxBank = STALL_MAX_BANK, stallGuard = false
+                )
+                val distance = FlightMath.horizontalDistance(boss.position(), known)
+                // The plane keeps rising for a while after the climb ends (speed, then the hang), so judge the height it
+                // will reach, not the current one.
+                val projected = boss.y + max(boss.deltaMovement.y, 0.0) * STALL_COAST_TICKS
+                // Highest start that still leaves a dive no steeper than STALL_MAX_DIVE_SLOPE: higher than that and the
+                // second pass is too steep to pull out of.
+                val ceiling = known.y + distance * STALL_MAX_DIVE_SLOPE
+                val apex = min(
+                    cruiseAltitude() + DIVE_TOP_EXTRA + STALL_APEX_EXTRA, min(ceiling, boss.level().maxBuildHeight + 60.0)
+                )
+                val clearance = projected - guard.floorAhead(known.y + UNKNOWN_TERRAIN_OFFSET)
+                val nosedUp = -boss.xRot >= STALL_MIN_NOSE_UP
+                val topped = projected >= apex || boss.deltaMovement.length() < STALL_HANG_SPEED
+                if (nosedUp && topped && clearance >= STALL_ROTATE_CLEARANCE) {
+                    enterStallPhase(StallPhase.SWING)
+                } else if (stallPhaseTicks > STALL_CLIMB_TIMEOUT || distance < STALL_MIN_DISTANCE ||
+                    (projected > ceiling && clearance < STALL_ROTATE_CLEARANCE) // the ridge needs a steeper dive than allowed
+                ) {
+                    enter(BossState.EXTEND)
+                }
+            }
+
+            StallPhase.SWING -> {
+                val nosedUp = FlightMath.tilted(toKnown, STALL_CLIMB_PITCH)
+                flight.steer(nosedUp, STALL_SWING_THROTTLE, maxBank = STALL_MAX_BANK, stallGuard = false)
+                flight.pivotYaw(nosedUp, STALL_YAW_STEP)
+                val yawError = abs(Mth.wrapDegrees(FlightMath.yaw(nosedUp) - boss.yRot))
+                if (yawError < STALL_SWING_DONE || stallPhaseTicks > STALL_SWING_TIMEOUT) enterStallPhase(StallPhase.DROP)
+            }
+
+            StallPhase.DROP -> {
+                val dive = FlightMath.tilted(toKnown, -STALL_DIVE_PITCH)
+                flight.steer(dive, STALL_DROP_THROTTLE, maxBank = STALL_DROP_MAX_BANK, converge = true)
+                if (flight.angleErrorDeg(dive) < STALL_RELEASE_ANGLE) {
+                    val distance = FlightMath.horizontalDistance(boss.position(), known)
+                    val shallowEnough = boss.y - known.y <= distance * STALL_MAX_ENTRY_SLOPE
+                    if (distance > STALL_MIN_DISTANCE && shallowEnough && secondPassReady() &&
+                        diveClearance(boss.position(), known) >= DIVE_CLEARANCE_MIN
+                    ) {
+                        diveWeapon = secondPassWeapon // the second pass may use another weapon than the first
+                        enter(BossState.GUN_DIVE)
+                    } else {
+                        enter(BossState.EXTEND)
+                    }
+                } else if (stallPhaseTicks > STALL_DROP_TIMEOUT) {
+                    enter(BossState.EXTEND)
+                }
+            }
+        }
     }
 
     private fun tickExtend(target: Entity?) {
@@ -1228,14 +1349,18 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         val v = boss.deltaMovement
         val descent = max(0.0, -v.y) * GUARD_DESCENT_FACTOR
 
-        if (state == BossState.GUN_DIVE) {
+        // The stall turn's drop is a dive: it gets the dive's emergency rule, not the level-flight buffer (which grows
+        // with the descent rate and would cancel every drop within a few ticks).
+        if (state == BossState.GUN_DIVE || (state == BossState.STALL_TURN && stallPhase == StallPhase.DROP)) {
             // Last resort for the dive: the terrain right below and just ahead (the pull-out altitude normally acts first).
             var ground = guard.terrainAt(boss.x, boss.z, boss.y - 100.0)
             for (ticks in EMERGENCY_LOOK_AHEAD_TICKS) {
                 val ahead = boss.position().add(v.scale(ticks))
                 ground = max(ground, guard.terrainAt(ahead.x, ahead.z, boss.y - 100.0))
             }
-            if (boss.y - ground < DIVE_EMERGENCY_CLEARANCE + max(0.0, -v.y) * DIVE_DESCENT_FACTOR) {
+            val emergency = if (stallPass) STALL_DIVE_EMERGENCY_CLEARANCE else DIVE_EMERGENCY_CLEARANCE
+            val descentFactor = if (stallPass) STALL_DIVE_DESCENT_FACTOR else DIVE_DESCENT_FACTOR
+            if (boss.y - ground < emergency + max(0.0, -v.y) * descentFactor) {
                 flight.pullUp(currentHeading(), 1.0)
                 enter(BossState.PULL_OUT)
             }
@@ -1259,6 +1384,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 // The SETUP leg only opens the distance while climbing back to run altitude (always the case right after
                 // a gun dive), so low clearance there must not cancel the pass; only the actual run is abandoned.
                 if (state == BossState.BOMB_RUN && bombPhase != BombPhase.SETUP) enter(BossState.EXTEND)
+                // The climb itself may start low (it is what gets the plane up); the swing must not go on near the ground.
+                if (state == BossState.STALL_TURN && stallPhase == StallPhase.SWING) enter(BossState.EXTEND)
             }
         }
     }
@@ -1361,12 +1488,46 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         /** Homing missiles launched during a rocket run with missiles. */
         const val DIVE_MISSILES = 2
 
-        // Double gun run: roll U-turn between the two passes
-        const val U_TURN_ALIGNED_DOT = 0.94
-        const val U_TURN_MAX_BANK = 75f
-        const val U_TURN_READY_ALTITUDE_ERROR = 35.0
-        const val U_TURN_MIN_DISTANCE = 90.0
-        const val U_TURN_TIMEOUT = 500
+        // Double gun run: stall turn between the two passes
+        /** Above 75 degrees the flight controller levels the wings, which a straight-up climb needs. */
+        /**
+         * The second pass starts slow, so it bottoms its pull-out higher (plain dives: 18 + 2 v^2), holds more power and
+         * takes the emergency pull-up earlier.
+         */
+        const val STALL_PULL_OUT_BASE = 40.0
+        const val STALL_PULL_OUT_SPEED_FACTOR = 3.5
+        const val STALL_DIVE_THROTTLE = 1.6f
+        const val STALL_DIVE_EMERGENCY_CLEARANCE = 40.0
+        const val STALL_DIVE_DESCENT_FACTOR = 18.0
+        /** Extra apex height of the climb; the dive slope cap ([STALL_MAX_DIVE_SLOPE]) still limits it. */
+        const val STALL_APEX_EXTRA = 30.0
+        const val STALL_CLIMB_PITCH = 80.0
+        const val STALL_MAX_BANK = 15f
+        const val STALL_DROP_MAX_BANK = 40f
+        /** The climb only ends with the nose at least this far above the horizon. */
+        const val STALL_MIN_NOSE_UP = 55.0
+        /** Blocks per tick below which the plane counts as hanging at the top of the climb. */
+        const val STALL_HANG_SPEED = 1.6
+        /** Required height above [TerrainGuard.floorAhead] (terrain plus its margin) before the swing starts. */
+        const val STALL_ROTATE_CLEARANCE = 40.0
+        const val STALL_SWING_THROTTLE = 0.6f
+        const val STALL_DROP_THROTTLE = 1.5f
+        const val STALL_YAW_STEP = 7f
+        const val STALL_SWING_DONE = 15.0
+        const val STALL_DIVE_PITCH = 35.0
+        const val STALL_RELEASE_ANGLE = 20.0
+        /** Closer than this (blocks) to the target the drop would be too steep to pull out of: no second pass. */
+        const val STALL_MIN_DISTANCE = 70.0
+        /** Steepest dive the climb may set up: tan(35 degrees), the slope of a normal gun run start. */
+        const val STALL_MAX_DIVE_SLOPE = 0.7
+        /** Backstop at the end of the drop: tan(42 degrees); steeper and the second pass is dropped. */
+        const val STALL_MAX_ENTRY_SLOPE = 0.9
+        /** Ticks of upward speed the plane is assumed to carry on after the climb ends. */
+        const val STALL_COAST_TICKS = 12
+        const val STALL_CLIMB_TIMEOUT = 160
+        const val STALL_SWING_TIMEOUT = 60
+        const val STALL_DROP_TIMEOUT = 100
+        const val STALL_TURN_TIMEOUT = 420
         const val DIVE_ROCKETS_MIN = 8
         const val DIVE_ROCKETS_MAX = 12
         const val CLIMB_TIMEOUT = 700
