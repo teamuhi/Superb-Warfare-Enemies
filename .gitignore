@@ -1,0 +1,11 @@
+CLAUDE.md
+CLAUDELOGS.md
+SuperbWarfare
+SimpleEnemies
+
+# Superb Enemies build output and local dependencies
+SuperbEnemies/libs/*.jar
+SuperbEnemies/build/
+SuperbEnemies/.gradle/
+SuperbEnemies/run/
+SuperbEnemies/.idea/

@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Client",
+      "presentation": {
+        "group": "Mod Development - superbenemies",
+        "order": 0
+      },
+      "projectName": "superbenemies",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\build\\moddev\\clientRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\build\\moddev\\clientRunVmArgs.txt",
+        "-Dfml.modFolders\u003dsuperbenemies%%C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\bin\\main"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {
+        "MOD_CLASSES": "superbenemies%%C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\bin\\main"
+      },
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Server",
+      "presentation": {
+        "group": "Mod Development - superbenemies",
+        "order": 1
+      },
+      "projectName": "superbenemies",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\build\\moddev\\serverRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\build\\moddev\\serverRunVmArgs.txt",
+        "-Dfml.modFolders\u003dsuperbenemies%%C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\bin\\main"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {
+        "MOD_CLASSES": "superbenemies%%C:\\Users\\timoT\\Documents\\GitHub\\Superb-Warfare-Enemies\\SuperbEnemies\\bin\\main"
+      },
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    }
+  ]
+}
