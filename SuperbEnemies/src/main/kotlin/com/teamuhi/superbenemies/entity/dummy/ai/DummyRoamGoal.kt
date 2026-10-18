@@ -1,8 +1,7 @@
 package com.teamuhi.superbenemies.entity.dummy.ai
 
-import com.teamuhi.superbenemies.config.DummyConfig
 import com.teamuhi.superbenemies.config.DummyMovement
-import com.teamuhi.superbenemies.entity.dummy.PlayerDummyEntity
+import com.teamuhi.superbenemies.entity.dummy.HumanoidDummyEntity
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.ai.goal.Goal
 import net.minecraft.world.level.pathfinder.Path
@@ -17,11 +16,11 @@ import kotlin.math.sin
  * The dummy's ROAM movement: it picks a random spot near where it stands, pathfinds there, pauses, and repeats, so it
  * wanders around like a player looking for something.
  *
- * Runs in ROAM mode, except for [PlayerDummyEntity.forcedStrafeUntil] ticks after the hide goal found no cover (the
+ * Runs in ROAM mode, except for [HumanoidDummyEntity.forcedStrafeUntil] ticks after the hide goal found no cover (the
  * strafe goal takes over then, so the dummy is never a sitting duck). Phases:
  *  - PAUSE: stands still for a random 0..`roamPauseSeconds` seconds, then picks the next spot.
- *  - WALK: follows the path to the spot, with optional random hops (`jumping`) and, on some legs, a sprint (`sprinting`).
- *    A leg ends when the path is done, when the dummy has hardly moved for [STUCK_TICKS] ticks, or after [LEG_TIMEOUT_TICKS].
+ *  - WALK: follows the path to the spot and, on some legs, sprints (`sprinting`). It never hops at random: the only jumps
+ *    are vanilla navigation's, to climb a block or step up on the path. A leg ends when the path is done, when the dummy has hardly moved for [STUCK_TICKS] ticks, or after [LEG_TIMEOUT_TICKS].
  *
  * A spot is a random point 3..`roamDistance` blocks from the dummy, resolved to a dry, standable block close to the
  * dummy's height (so it works indoors and on slopes), and accepted only when it is loaded, inside the leash and
@@ -29,10 +28,10 @@ import kotlin.math.sin
  * towards the anchor are tried. Without an anchor (or an unloaded anchor chunk) there is no leash bias at all.
  *
  * Config options are read live, and all state is per instance. The look goal turns only the head while a path is in
- * progress, so the body faces the walking direction. While [PlayerDummyEntity.roaming] is set, the look goal makes the
+ * progress, so the body faces the walking direction. While [HumanoidDummyEntity.roaming] is set, the look goal makes the
  * head trace the path ahead instead of staring at the threat, and glance around during pauses.
  */
-class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
+class DummyRoamGoal(private val dummy: HumanoidDummyEntity) : Goal() {
 
     private enum class Phase { PAUSE, WALK }
 
@@ -54,7 +53,7 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
 
     override fun canUse(): Boolean {
         if (dummy.isPassenger || !dummy.isAlive) return false
-        return DummyConfig.MOVEMENT.get() == DummyMovement.ROAM && dummy.tickCount >= dummy.forcedStrafeUntil
+        return dummy.settings.movement() == DummyMovement.ROAM && dummy.tickCount >= dummy.forcedStrafeUntil
     }
 
     override fun canContinueToUse(): Boolean = canUse()
@@ -86,20 +85,19 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
     private fun tickPause() {
         val now = dummy.tickCount
         // The pause option was lowered while waiting: do not sit out the old, longer wait.
-        pauseUntil = minOf(pauseUntil, now + DummyConfig.ROAM_PAUSE_SECONDS.get() * 20)
+        pauseUntil = minOf(pauseUntil, now + dummy.settings.roamPauseSeconds() * 20)
         if (now < pauseUntil) return
         if (!startLeg()) enterPause(NO_SPOT_PAUSE_TICKS)
     }
 
     private fun tickWalk() {
         val now = dummy.tickCount
-        val rng = dummy.getRandom()
 
-        // Options toggled mid-leg: a sprint must stop at once when sprinting is switched off.
-        val sprint = sprintLeg && DummyConfig.STRAFE_SPRINTING.get()
+        // Options toggled mid-leg: a sprint must stop at once when sprinting is switched off. The flag also drops while
+        // the dummy is barely moving (blocked, turning a corner), so no sprint particles puff out of a slow walk.
+        val velocity = dummy.deltaMovement
+        val sprint = sprintLeg && dummy.settings.sprinting() && hypot(velocity.x, velocity.z) > SPRINT_MIN_SPEED
         if (dummy.isSprinting != sprint) dummy.isSprinting = sprint
-
-        if (DummyConfig.STRAFE_JUMPING.get() && dummy.onGround() && rng.nextInt(JUMP_CHANCE) == 0) dummy.hop()
 
         if (dummy.navigation.isDone || now > legDeadline) {
             endLeg()
@@ -121,7 +119,7 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
         if (!dummy.navigation.moveTo(path, 1.0)) return false
         phase = Phase.WALK
         legDeadline = dummy.tickCount + LEG_TIMEOUT_TICKS
-        sprintLeg = DummyConfig.STRAFE_SPRINTING.get() && dummy.getRandom().nextInt(100) < SPRINT_LEG_PERCENT
+        sprintLeg = dummy.settings.sprinting() && dummy.getRandom().nextInt(100) < SPRINT_LEG_PERCENT
         rememberPosition()
         return true
     }
@@ -130,7 +128,7 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
         dummy.navigation.stop()
         dummy.isSprinting = false
         sprintLeg = false
-        enterPause(dummy.getRandom().nextInt(DummyConfig.ROAM_PAUSE_SECONDS.get() * 20 + 1))
+        enterPause(dummy.getRandom().nextInt(dummy.settings.roamPauseSeconds() * 20 + 1))
     }
 
     private fun enterPause(ticks: Int) {
@@ -150,7 +148,7 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
     /** The path to a random reachable spot, or null after [SPOT_TRIES] failed candidates. */
     private fun findPath(): Path? {
         val rng = dummy.getRandom()
-        val maxDistance = DummyConfig.ROAM_DISTANCE.get().toDouble()
+        val maxDistance = dummy.settings.roamDistance().toDouble()
         val anchor = dummy.anchorCenter()
         val anchorDistance = anchor?.let { hypot(it.x - dummy.x, it.z - dummy.z) }
         // Outside the leash: only spots towards the anchor, within 60 degrees of straight at it.
@@ -213,11 +211,11 @@ class DummyRoamGoal(private val dummy: PlayerDummyEntity) : Goal() {
 
         const val NO_SPOT_PAUSE_TICKS = 20
 
-        /** One-in-N chance per tick of a hop while walking with `jumping` on. */
-        const val JUMP_CHANCE = 60
-
         /** Share (percent) of legs that are sprinted when `sprinting` is on. */
         const val SPRINT_LEG_PERCENT = 30
+
+        /** Horizontal speed (blocks/tick) below which a sprint leg is not shown as sprinting; walking is about 0.2. */
+        const val SPRINT_MIN_SPEED = 0.1
 
         const val LEG_TIMEOUT_TICKS = 400
         const val STUCK_TICKS = 40

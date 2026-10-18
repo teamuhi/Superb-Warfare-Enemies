@@ -4,8 +4,11 @@ import com.teamuhi.superbenemies.client.ClientSetup
 import com.teamuhi.superbenemies.config.Ac130Config
 import com.teamuhi.superbenemies.config.BossConfig
 import com.teamuhi.superbenemies.config.DummyConfig
+import com.teamuhi.superbenemies.config.SoldierConfig
 import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedBosses
 import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedProjectiles
+import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedVehicles
+import com.teamuhi.superbenemies.entity.boss.common.BossRespawns
 import com.teamuhi.superbenemies.entity.dummy.TrackedDummies
 import com.teamuhi.superbenemies.init.ModCreativeTabs
 import com.teamuhi.superbenemies.init.ModEntities
@@ -35,6 +38,7 @@ object SuperbEnemies {
         // One file per boss so each can be tuned (and reset) independently.
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Ac130Config.SPEC, "superbenemies-ac130-common.toml")
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, DummyConfig.SPEC, "superbenemies-dummy-common.toml")
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, SoldierConfig.SPEC, "superbenemies-soldier-common.toml")
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT) { Runnable { ClientSetup.registerConfigScreen() } }
 
         val bus = MOD_BUS
@@ -42,9 +46,12 @@ object SuperbEnemies {
         ModItems.REGISTRY.register(bus)
         ModCreativeTabs.REGISTRY.register(bus)
 
-        // Entity trackers the AI reads instead of scanning levels (guided missiles, boss aircraft, player dummies).
+        // Entity trackers the AI reads instead of scanning levels (guided missiles, boss aircraft, vehicles, player dummies).
         TrackedProjectiles.register(FORGE_BUS)
         TrackedBosses.register(FORGE_BUS)
+        TrackedVehicles.register(FORGE_BUS)
         TrackedDummies.register(FORGE_BUS)
+        // Bosses that withdrew to rearm come back through this (see BossRespawns).
+        BossRespawns.register(FORGE_BUS)
     }
 }

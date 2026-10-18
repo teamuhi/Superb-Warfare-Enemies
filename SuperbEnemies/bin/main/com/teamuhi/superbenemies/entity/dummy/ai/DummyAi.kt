@@ -2,7 +2,7 @@ package com.teamuhi.superbenemies.entity.dummy.ai
 
 import com.teamuhi.superbenemies.entity.boss.common.BossAircraft
 import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedBosses
-import com.teamuhi.superbenemies.entity.dummy.PlayerDummyEntity
+import com.teamuhi.superbenemies.entity.dummy.HumanoidDummyEntity
 import net.minecraft.world.entity.Entity
 import kotlin.math.cos
 import kotlin.math.sin
@@ -10,7 +10,7 @@ import kotlin.math.sin
 /** Small helpers shared by the dummy's goals. */
 internal object DummyAi {
 
-    /** A boss within this many blocks makes the dummy look at it and (with `hideFromBosses`) run for cover. */
+    /** A boss within this many blocks makes the dummy look at it and (with `hideFromBosses` for the player dummy) run for cover. */
     const val BOSS_RANGE = 400.0
 
     /**
@@ -29,7 +29,7 @@ internal object DummyAi {
     }
 
     /** The nearest live boss aircraft within [BOSS_RANGE] blocks of [dummy] (any state), or null. */
-    fun nearestBoss(dummy: PlayerDummyEntity, includeCrippled: Boolean): Entity? {
+    fun nearestBoss(dummy: HumanoidDummyEntity, includeCrippled: Boolean): Entity? {
         var best: Entity? = null
         var bestDistance = BOSS_RANGE * BOSS_RANGE
         for (entity in TrackedBosses.near(dummy.level(), dummy.position(), BOSS_RANGE)) {

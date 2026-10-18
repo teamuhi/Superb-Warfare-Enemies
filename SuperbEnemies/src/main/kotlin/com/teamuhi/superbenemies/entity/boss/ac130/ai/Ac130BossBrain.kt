@@ -4,6 +4,7 @@ import com.teamuhi.superbenemies.SuperbEnemies
 import com.teamuhi.superbenemies.config.Ac130Config
 import com.teamuhi.superbenemies.entity.boss.ac130.Ac130BossEntity
 import com.teamuhi.superbenemies.entity.boss.ac130.Ac130Gun
+import com.teamuhi.superbenemies.entity.boss.common.BossRespawns
 import com.teamuhi.superbenemies.entity.boss.common.ResupplyNotices
 import com.teamuhi.superbenemies.entity.boss.common.ai.FlightController
 import com.teamuhi.superbenemies.entity.boss.common.ai.FlightMath
@@ -14,7 +15,6 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.Vec3
-import org.joml.Quaternionf
 import java.util.EnumMap
 import kotlin.math.abs
 import kotlin.math.cos
@@ -58,9 +58,6 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
     val withdrawn: Boolean
         get() = state == Ac130State.RESUPPLY || (state == Ac130State.EVADE && resumeState == Ac130State.RESUPPLY)
 
-    /** True when the autopilot (SBW loiter) was commanded this tick; the terrain guard needs to know who is flying. */
-    private var autopilotThisTick = false
-
     // --- orbit ---
     /** Adaptive orbit radius; negative until first used so the config is only read once the server runs. */
     private var radius = -1.0
@@ -90,19 +87,15 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
 
     // --- resupply ---
     private var depot: Vec3? = null
-    private var resupplyArrived = false
 
-    /** Where the fight was when the boss left to rearm; the "hunting" notice also reaches the players there. */
+    /** Where the fight was when the boss left to rearm; its replacement appears around here. */
     private var resupplyFrom: Vec3? = null
-    private var resupplyEndTick = 0
 
     // --- taunt ---
     private var tauntPhase = TauntPhase.SETUP
     private var tauntPassed = false
     private var flaresDropped = 0
     private var nextTauntFlareTick = 0
-
-    private var guardLatched = false
 
     private enum class TauntPhase { SETUP, RUN }
 
@@ -118,8 +111,6 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         }
 
         stateTicks++
-        autopilotThisTick = false
-
         targeting.update(level, radiusNow())
         val target = targeting.aim
 
@@ -147,6 +138,7 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         // Aim every tick; fire only while circling, flying in or breaking away (the taunt and the rearm never shoot).
         val mayFire = state == Ac130State.INGRESS || state == Ac130State.ORBIT || state == Ac130State.EVADE
         gunnery.tick(target, targeting.aimVelocity, mayFire, firePlan())
+        threats.applyFlareInput()
 
         safetyNet(target)
     }
@@ -221,19 +213,36 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         boss.power = Mth.lerp(0.1f, boss.power, wanted.toFloat())
     }
 
-    private fun ensureLoiter(x: Double, altitude: Double, z: Double, radius: Double) {
-        autopilotThisTick = true
-        val p = boss.loiterParams
-        if (abs(p.x() - x) > 2.0 || abs(p.y() - altitude) > 2.0 || abs(p.z() - z) > 2.0 || abs(p.w() - radius) > 1.0) {
-            boss.loiterParams = Quaternionf(x.toFloat(), altitude.toFloat(), z.toFloat(), radius.toFloat())
-        }
-        if (!boss.loiterActive) boss.loiterActive = true
+    /** Flies a broad, shallow-bank pylon turn while holding the requested altitude. */
+    private fun flyPylon(centre: Vec3, altitude: Double, radius: Double) {
+        val offset = FlightMath.horizontal(
+            Vec3(boss.x - centre.x, 0.0, boss.z - centre.z),
+            currentHeading()
+        )
+        val distance = FlightMath.horizontalDistance(boss.position(), centre)
+        // The left-side guns must face the centre: at +X the aircraft therefore flies toward -Z.
+        val tangent = Vec3(offset.z, 0.0, -offset.x)
+        // Keep the tangent dominant: an uncapped correction turns the gunship through the target when it falls inside
+        // the ring, especially while the heavy aircraft is still carrying lateral momentum.
+        val radialCorrection = offset.scale(
+            ((radius - distance) * PYLON_RADIAL_GAIN).coerceIn(-PYLON_MAX_RADIAL, PYLON_MAX_RADIAL)
+        )
+        val desired = tangent.add(radialCorrection)
+        val altitudeCorrection = ((altitude - boss.y) * PYLON_PITCH_GAIN).coerceIn(-PYLON_MAX_DOWN, PYLON_MAX_UP)
+        fly(
+            FlightMath.tilted(desired, altitudeCorrection),
+            ORBIT_THROTTLE.toFloat(),
+            maxBank = PYLON_MAX_BANK
+        )
     }
 
     /** Releases one flare burst this tick (unlimited: the dispenser is refilled instead of waiting for SBW's reload). */
     private fun releaseFlare() {
         if (boss.isWreck || boss.crippled) return
-        if (boss.decoyCount < 1) boss.decoyCount = boss.computed().decoyMagazineSize
+        if (boss.decoyCount < 1) {
+            if (Ac130Config.LIMITED_AMMO.get()) return
+            boss.decoyCount = boss.computed().decoyMagazineSize
+        }
         boss.decoyInputDown = true
     }
 
@@ -260,7 +269,6 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
 
             Ac130State.RESUPPLY -> {
                 depot = null
-                resupplyArrived = false
                 boss.announce(MSG_WITHDRAW, ResupplyNotices.WITHDRAW_STYLE)
             }
 
@@ -284,7 +292,7 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         resumeState = state
         resumeTicks = stateTicks
         evadeSide = if (boss.getRandom().nextBoolean()) 1.0 else -1.0
-        evadeDuration = randomBetween(30, 40)
+        evadeDuration = randomBetween(EVADE_MIN, EVADE_MAX)
         enter(Ac130State.EVADE)
     }
 
@@ -305,8 +313,7 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         val cruise = cruiseAltitude()
 
         if (target == null) {
-            ensureLoiter(boss.homePos.x, cruise, boss.homePos.z, baseRadius())
-            trimOrbitThrottle(cruise)
+            flyPylon(boss.homePos, cruise, baseRadius())
             return
         }
 
@@ -320,8 +327,7 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
                 enter(Ac130State.ORBIT)
                 return
             }
-            ensureLoiter(target.x, cruise, target.z, r)
-            trimOrbitThrottle(cruise)
+            flyPylon(target.position(), cruise, r)
             return
         }
 
@@ -349,9 +355,14 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         manageFireMode(target)
         val centre = followTarget(orbitFocus(target), r)
         adaptRadius(target)
-        val adapted = radiusNow()
-        ensureLoiter(centre.x, cruise, centre.z, adapted)
-        trimOrbitThrottle(cruise)
+        // Split victims can occupy a wide cluster. Move farther out so their angles remain inside the
+        // left-side gun windows instead of forcing the airframe through the cluster.
+        val adapted = if (fireMode == Ac130FireMode.SPLIT) {
+            max(radiusNow(), baseRadius() * SPLIT_STANDOFF_FACTOR)
+        } else {
+            radiusNow()
+        }
+        flyPylon(centre, cruise, adapted)
 
         // A rare show-off pass, never when there is nothing to shoot it down with and never replacing the guns.
         if (stateTicks >= nextTauntRollTick) {
@@ -558,7 +569,9 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
 
     /**
      * Out of ammunition: climb and fly to a point [RESUPPLY_DISTANCE] blocks beyond the target (away from where the
-     * fight was), loiter there for `resupplySeconds`, then refill and go back to INGRESS to hunt again.
+     * fight was). Once it has arrived, or no player can see it any more, the boss is removed and a replacement with the
+     * same health and a full load appears around the fight after `resupplySeconds` (see [BossRespawns]), which saves
+     * keeping a far-away gunship loaded and ticking.
      */
     private fun tickResupply() {
         val aim = targeting.aim
@@ -570,25 +583,16 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         }.also { depot = it }
         val altitude = cruiseAltitude() + RESUPPLY_EXTRA_HEIGHT
 
-        if (!resupplyArrived) {
-            val altitudeError = altitude - boss.y
-            fly(FlightMath.tilted(towards(dest), (altitudeError * 0.1).coerceIn(-4.0, 16.0)), 2.6f)
-            val arrived = FlightMath.horizontalDistance(boss.position(), dest) < RESUPPLY_ARRIVE_DISTANCE
-            if (arrived || stateTicks > RESUPPLY_TRAVEL_TIMEOUT) {
-                resupplyArrived = true
-                resupplyEndTick = boss.tickCount + Ac130Config.RESUPPLY_SECONDS.get().toInt() * 20
-            }
-            return
-        }
-
-        ensureLoiter(dest.x, altitude, dest.z, baseRadius())
-        trimOrbitThrottle(altitude)
-        if (boss.tickCount >= resupplyEndTick) {
-            gunnery.refillAmmo()
-            depot = null
-            // The depot is far beyond the bar range: also tell the players at the fight (where the target is now).
-            boss.announce(MSG_HUNTING, ResupplyNotices.HUNTING_STYLE, aim?.position() ?: resupplyFrom)
-            enter(Ac130State.INGRESS)
+        val altitudeError = altitude - boss.y
+        fly(FlightMath.tilted(towards(dest), (altitudeError * 0.1).coerceIn(-4.0, 16.0)), 2.6f)
+        val arrived = FlightMath.horizontalDistance(boss.position(), dest) < RESUPPLY_ARRIVE_DISTANCE
+        val unseen = stateTicks > RESUPPLY_MIN_VISIBLE_TICKS &&
+                !BossRespawns.playerWithin(boss, Ac130Config.BOSS_BAR_RANGE.get() + RESUPPLY_UNSEEN_MARGIN)
+        if (arrived || unseen || stateTicks > RESUPPLY_TRAVEL_TIMEOUT) {
+            BossRespawns.withdraw(
+                boss, MSG_HUNTING, aim?.position() ?: resupplyFrom ?: boss.homePos, boss.homePos,
+                Ac130Config.RESUPPLY_SECONDS.get().toInt() * 20L, RESUPPLY_CLEARANCE_HALF_WIDTH
+            )
         }
     }
 
@@ -636,13 +640,7 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         val clearance = boss.y - floor
         val buffer = GUARD_BASE_BUFFER + descent
 
-        if (autopilotThisTick) {
-            if (clearance < buffer * 0.6) guardLatched = true else if (clearance > buffer * 1.5) guardLatched = false
-            if (guardLatched) flight.pullUp(currentHeading(), (1.0 - clearance / buffer).coerceIn(0.0, 1.0))
-        } else {
-            guardLatched = false
-            if (clearance < buffer) flight.pullUp(currentHeading(), (1.0 - clearance / buffer).coerceIn(0.0, 1.0))
-        }
+        if (clearance < buffer) flight.pullUp(currentHeading(), (1.0 - clearance / buffer).coerceIn(0.0, 1.0))
     }
 
     private companion object {
@@ -653,8 +651,8 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
 
         // Orbit
         const val MIN_RADIUS_FACTOR = 0.45
-        /** The suggested radius is flown this much tighter: a tighter pylon turn keeps the guns on the target. */
-        const val ORBIT_TIGHTEN = 0.85
+        /** Keep the gun-suggested standoff distance; tightening it made the heavy gunship cut through targets. */
+        const val ORBIT_TIGHTEN = 1.0
         const val MAX_RADIUS_FACTOR = 1.8
         const val RADIUS_ADAPT_INTERVAL = 5
         const val RADIUS_GAIN = 0.1
@@ -674,12 +672,18 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         const val ORBIT_THROTTLE = 1.8
         const val ORBIT_THROTTLE_MIN = 1.6
         const val ORBIT_THROTTLE_MAX = 2.8
+        const val PYLON_RADIAL_GAIN = 0.01
+        const val PYLON_MAX_RADIAL = 0.65
+        const val PYLON_PITCH_GAIN = 0.08
+        const val PYLON_MAX_UP = 12.0
+        const val PYLON_MAX_DOWN = 6.0
+        const val PYLON_MAX_BANK = 28f
 
-        // Fire patterns: a roll every MODE_ROLL ticks, each pattern lasts a few seconds
-        const val MODE_FIRST_ROLL_MIN = 200
-        const val MODE_FIRST_ROLL_MAX = 300
-        const val MODE_ROLL_MIN = 300
-        const val MODE_ROLL_MAX = 500
+        // Fire patterns: frequent rolls keep the gunship changing attack pressure while it circles.
+        const val MODE_FIRST_ROLL_MIN = 60
+        const val MODE_FIRST_ROLL_MAX = 120
+        const val MODE_ROLL_MIN = 100
+        const val MODE_ROLL_MAX = 180
         const val SPLIT_MIN = 160
         const val SPLIT_MAX = 240
         const val FOCUS_MIN = 120
@@ -687,6 +691,7 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         const val SPLIT_CLUSTER_RADIUS = 70.0
         const val SPLIT_REFRESH_TICKS = 60
         const val SPLIT_SPOT_RADIUS = 14.0
+        const val SPLIT_STANDOFF_FACTOR = 1.45
         const val FOCUS_SCATTER_SCALE = 0.35
 
         // Taunt
@@ -703,6 +708,10 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         const val TAUNT_NO_FLARE_TICKS = 200
         const val TAUNT_TIMEOUT = 700
 
+        // Missile breaks are short enough for the side guns to keep engaging while the gunship jinks.
+        const val EVADE_MIN = 20
+        const val EVADE_MAX = 28
+
         // Resupply
         const val RESUPPLY_DISTANCE = 600.0
         /** Without globalAggro the depot is at most this fraction of the lose-target distance from the target. */
@@ -710,6 +719,11 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         const val RESUPPLY_EXTRA_HEIGHT = 60.0
         const val RESUPPLY_ARRIVE_DISTANCE = 100.0
         const val RESUPPLY_TRAVEL_TIMEOUT = 2400
+
+        /** The boss only vanishes this long after leaving, and once no player is within the bar range plus the margin. */
+        const val RESUPPLY_MIN_VISIBLE_TICKS = 100
+        const val RESUPPLY_UNSEEN_MARGIN = 64.0
+        const val RESUPPLY_CLEARANCE_HALF_WIDTH = 16.0
 
         // Terrain guard
         const val UNKNOWN_TERRAIN_OFFSET = 40.0

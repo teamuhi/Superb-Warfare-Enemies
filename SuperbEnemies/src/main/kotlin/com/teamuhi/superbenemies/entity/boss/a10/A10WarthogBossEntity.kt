@@ -97,8 +97,15 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
     }
 
     /** Chat message to the players around the boss (same reach as the crippled / defeated broadcasts). */
-    fun announce(translationKey: String, style: Style, alsoNear: Vec3? = null) =
+    override fun announce(translationKey: String, style: Style, alsoNear: Vec3?) =
         lifecycle.broadcast(translationKey, style, alsoNear)
+
+    /** Health fraction a replacement boss starts with; negative = full health. Saved until the first tick used it. */
+    private var restoredHealth = -1f
+
+    override fun restoreHealthFraction(fraction: Float) {
+        restoredHealth = fraction
+    }
 
     override fun isCrew(entity: Entity?): Boolean = entity != null && entity === pilot
 
@@ -107,6 +114,10 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
     override fun defensiveFlares(): Boolean = BossConfig.DEFENSIVE_FLARES.get()
 
     override fun flareMissChance(): Double = BossConfig.FLARE_MISS_CHANCE.get() / 100.0
+
+    override fun limitedAmmo(): Boolean = BossConfig.LIMITED_AMMO.get()
+
+    override fun flareAmmoLoad(): Int = BossConfig.FLARE_COUNT.get()
 
     /** Unit vector of the current heading in the horizontal plane (Minecraft yaw convention). */
     private fun horizontalLook(): Vec3 {
@@ -139,8 +150,10 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
         }
 
         applyVehicleOverride()
-        health = getMaxHealth()
+        health = if (restoredHealth > 0f) restoredHealth * getMaxHealth() else getMaxHealth()
+        restoredHealth = -1f
         applyWeaponTuning()
+        if (BossConfig.LIMITED_AMMO.get()) decoyCount = BossConfig.FLARE_COUNT.get()
 
         if (hasEnergyStorage()) energy = maxEnergy
         engineStart = true
@@ -218,7 +231,11 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
             inventory.setStackInSlot(0, ItemStack(SbwItems.CREATIVE_AMMO_BOX.get()))
         }
         if (hasEnergyStorage() && energy < maxEnergy / 2) energy = maxEnergy
-        if (decoyCount < 2) decoyCount = computed().decoyMagazineSize
+        if (BossConfig.LIMITED_AMMO.get()) {
+            decoyCount = minOf(decoyCount, BossConfig.FLARE_COUNT.get())
+        } else if (decoyCount < 2) {
+            decoyCount = computed().decoyMagazineSize
+        }
     }
 
     private fun spawnPilot() {
@@ -345,6 +362,7 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
     override fun addAdditionalSaveData(compound: CompoundTag) {
         super.addAdditionalSaveData(compound)
         compound.putBoolean(TAG_INITIALISED, initialised)
+        if (restoredHealth > 0f) compound.putFloat(TAG_RESTORED_HEALTH, restoredHealth)
         lifecycle.save(compound)
         if (homeSet) {
             compound.putDouble(TAG_HOME_X, homePos.x)
@@ -359,6 +377,7 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
     override fun readAdditionalSaveData(compound: CompoundTag) {
         super.readAdditionalSaveData(compound)
         initialised = compound.getBoolean(TAG_INITIALISED)
+        restoredHealth = if (compound.contains(TAG_RESTORED_HEALTH)) compound.getFloat(TAG_RESTORED_HEALTH) else -1f
         lifecycle.load(compound)
         if (compound.contains(TAG_HOME_X)) {
             homePos = Vec3(compound.getDouble(TAG_HOME_X), compound.getDouble(TAG_HOME_Y), compound.getDouble(TAG_HOME_Z))
@@ -371,6 +390,7 @@ class A10WarthogBossEntity(type: EntityType<A10WarthogBossEntity>, level: Level)
         val LOOT_TABLE = ResourceLocation(SuperbEnemies.MOD_ID, "entities/a10_warthog_boss")
 
         const val TAG_INITIALISED = "BossInitialised"
+        const val TAG_RESTORED_HEALTH = "BossRestoredHealth"
         const val TAG_HOME_X = "BossHomeX"
         const val TAG_HOME_Y = "BossHomeY"
         const val TAG_HOME_Z = "BossHomeZ"

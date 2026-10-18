@@ -158,7 +158,10 @@ class FireControl(private val boss: A10WarthogBossEntity) {
     /** Releases one flare burst this tick (unlimited: the dispenser is refilled instead of waiting for SBW's reload). */
     fun releaseFlare() {
         if (boss.isWreck || boss.crippled) return
-        if (boss.decoyCount < 1) boss.decoyCount = boss.computed().decoyMagazineSize
+        if (boss.decoyCount < 1) {
+            if (BossConfig.LIMITED_AMMO.get()) return
+            boss.decoyCount = boss.computed().decoyMagazineSize
+        }
         boss.decoyInputDown = true
     }
 
@@ -298,11 +301,6 @@ class FireControl(private val boss: A10WarthogBossEntity) {
     }
 
     fun hasAmmo(weapon: String): Boolean = ammoLeft(weapon) > 0
-
-    /** Restores a full load (the next lookup re-reads the configured size). */
-    fun refillAmmo() {
-        ammo.clear()
-    }
 
     private fun consumeAmmo(weapon: String) {
         if (!BossConfig.LIMITED_AMMO.get()) return

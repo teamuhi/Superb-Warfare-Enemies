@@ -115,11 +115,6 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
     /** True when at least one enabled gun can still fire (always true without `limitedAmmo`, if any gun is enabled). */
     fun hasUsableGun(): Boolean = Ac130Gun.entries.any { enabled(it) && hasAmmo(it) }
 
-    /** Restores a full load (the next lookup re-reads the configured size). */
-    fun refillAmmo() {
-        ammo.clear()
-    }
-
     private fun consumeAmmo(gun: Ac130Gun) {
         if (!Ac130Config.LIMITED_AMMO.get()) return
         ammo[gun.weaponName] = max(0, ammoLeft(gun) - 1)
@@ -536,8 +531,8 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         const val MIN_BARRAGE_DESCENT = 0.05
 
         // Turns for guns that do not fire simultaneously
-        const val TURN_TICKS = 60
-        const val TURN_IDLE_TICKS = 15
+        const val TURN_TICKS = 24
+        const val TURN_IDLE_TICKS = 6
 
         // M61 cadence and scatter
         const val CANNON_BURST_MIN = 45
@@ -556,7 +551,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         const val TELEPORT_DISTANCE_SQR = 20.0 * 20.0
 
         // M102
-        const val HOWITZER_P1_COOLDOWN = 20
+        const val HOWITZER_P1_COOLDOWN = 8
 
         // Orbit radius suggestion
         const val MIN_WORLD_DEPRESSION = 12.0

@@ -1,7 +1,6 @@
 package com.teamuhi.superbenemies.entity.dummy.ai
 
-import com.teamuhi.superbenemies.config.DummyConfig
-import com.teamuhi.superbenemies.entity.dummy.PlayerDummyEntity
+import com.teamuhi.superbenemies.entity.dummy.HumanoidDummyEntity
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.ai.goal.Goal
 import net.minecraft.world.level.chunk.LevelChunk
@@ -11,8 +10,9 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * With `hideFromBosses` on, the dummy runs for cover whenever a live, uncrippled boss is within
- * [DummyAi.BOSS_RANGE] blocks, in either movement mode.
+ * The dummy runs for cover whenever [HumanoidDummyEntity.wantsCover] is true, in any movement mode. For the player dummy
+ * that is: `hideFromBosses` is on and a live, uncrippled boss is within [DummyAi.BOSS_RANGE] blocks. The dummy soldier
+ * also wants cover for a while after a hit, or when it is out of missiles.
  *
  * Cover is a standable spot with a roof: the height map's top blocking block (leaves count) is at least two blocks
  * above the dummy's head. The search is sampled, not exhaustive, and only runs when a boss shows up or the current
@@ -23,11 +23,11 @@ import kotlin.math.hypot
  * Chunks are read with `getChunkNow`, so the search never loads or generates terrain.
  *
  * Phases: SEEK (sprint to the chosen spot) -> COVER (stand still, crouch now and then, the look goal keeps the boss in
- * sight; searches again if the roof is blown away) -> RETURN (once no boss was seen for [THREAT_MEMORY_TICKS] ticks,
+ * sight; searches again if the roof is blown away) -> RETURN (once cover was not wanted for [HumanoidDummyEntity.coverMemoryTicks] ticks,
  * walk back to the spawn point and hand over to the movement mode). With no cover at all the dummy falls back to
- * strafing for a while ([PlayerDummyEntity.forcedStrafeUntil]), so it is never a sitting duck.
+ * strafing for a while ([HumanoidDummyEntity.forcedStrafeUntil]), so it is never a sitting duck.
  */
-class DummyHideGoal(private val dummy: PlayerDummyEntity) : Goal() {
+class DummyHideGoal(private val dummy: HumanoidDummyEntity) : Goal() {
 
     private enum class Phase { SEEK, COVER, RETURN }
 
@@ -51,15 +51,15 @@ class DummyHideGoal(private val dummy: PlayerDummyEntity) : Goal() {
     override fun requiresUpdateEveryTick(): Boolean = true
 
     override fun canUse(): Boolean {
-        if (!DummyConfig.HIDE_FROM_BOSSES.get() || dummy.isPassenger || !dummy.isAlive) return false
+        if (!dummy.coverEnabled() || dummy.isPassenger || !dummy.isAlive) return false
         val now = dummy.tickCount
         if (now < dummy.hideRetryUntil || now < nextScanTick) return false
-        nextScanTick = now + SCAN_INTERVAL
-        return DummyAi.nearestBoss(dummy, includeCrippled = false) != null
+        nextScanTick = now + scanInterval()
+        return dummy.wantsCover()
     }
 
     override fun canContinueToUse(): Boolean =
-        !finished && DummyConfig.HIDE_FROM_BOSSES.get() && !dummy.isPassenger && dummy.isAlive
+        !finished && dummy.coverEnabled() && !dummy.isPassenger && dummy.isAlive
 
     override fun start() {
         val now = dummy.tickCount
@@ -69,7 +69,7 @@ class DummyHideGoal(private val dummy: PlayerDummyEntity) : Goal() {
         candidates.clear()
         needsSearch = true
         lastThreatTick = now
-        nextScanTick = now + SCAN_INTERVAL
+        nextScanTick = now + scanInterval()
         crouchTicks = 0
     }
 
@@ -85,13 +85,13 @@ class DummyHideGoal(private val dummy: PlayerDummyEntity) : Goal() {
         val now = dummy.tickCount
 
         if (now >= nextScanTick) {
-            nextScanTick = now + SCAN_INTERVAL
-            if (DummyAi.nearestBoss(dummy, includeCrippled = false) != null) {
+            nextScanTick = now + scanInterval()
+            if (dummy.wantsCover()) {
                 lastThreatTick = now
                 if (phase == Phase.RETURN) enterSeek()
             }
         }
-        if (phase != Phase.RETURN && now - lastThreatTick > THREAT_MEMORY_TICKS) enterReturn()
+        if (phase != Phase.RETURN && now - lastThreatTick > dummy.coverMemoryTicks) enterReturn()
 
         when (phase) {
             Phase.SEEK -> tickSeek()
@@ -99,6 +99,13 @@ class DummyHideGoal(private val dummy: PlayerDummyEntity) : Goal() {
             Phase.RETURN -> tickReturn()
         }
     }
+
+    /**
+     * How often [HumanoidDummyEntity.wantsCover] is asked. A dummy with no memory (the soldier: it must walk back the
+     * moment its cover time ends) asks every tick, which is cheap for it; the player dummy scans the bosses only every
+     * [SCAN_INTERVAL] ticks.
+     */
+    private fun scanInterval(): Int = if (dummy.coverMemoryTicks <= 0) 1 else SCAN_INTERVAL
 
     // ================================================================================================== phases
 
@@ -270,9 +277,6 @@ class DummyHideGoal(private val dummy: PlayerDummyEntity) : Goal() {
     private companion object {
         /** A boss within range is looked for this often (ticks). */
         const val SCAN_INTERVAL = 20
-
-        /** After the last sighting the dummy keeps hiding this long before it walks home. */
-        const val THREAT_MEMORY_TICKS = 100
 
         const val SAMPLES = 200
         const val SEARCH_RADIUS = 24

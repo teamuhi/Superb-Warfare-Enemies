@@ -1,5 +1,6 @@
 package com.teamuhi.superbenemies.entity.boss.common
 
+import net.minecraft.network.chat.Style
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.phys.Vec3
 
@@ -27,9 +28,24 @@ interface BossAircraft {
     /** Chance (0-1) that the boss fails to notice an incoming homing missile (config, read live). */
     fun flareMissChance(): Double
 
+    /** Whether flare bursts use a finite load instead of SBW's replenished dispenser. */
+    fun limitedAmmo(): Boolean
+
+    /** Configured flare bursts in a finite load. */
+    fun flareAmmoLoad(): Int
+
     /** Called by the spawn egg before the entity is added: sets the home point and puts the aircraft in the air. */
     fun prepareLaunch(home: Vec3)
 
     /** True when the boss took damage within the last [ticks] ticks. */
     fun recentlyDamaged(ticks: Int): Boolean
+
+    /**
+     * Makes this (new) boss start at [fraction] of its maximum health instead of full: the replacement of a boss that
+     * withdrew to rearm (see [BossRespawns]). Call before the entity is added to the level.
+     */
+    fun restoreHealthFraction(fraction: Float)
+
+    /** Chat message to the players around the boss, and around [alsoNear] when given. */
+    fun announce(translationKey: String, style: Style, alsoNear: Vec3? = null)
 }

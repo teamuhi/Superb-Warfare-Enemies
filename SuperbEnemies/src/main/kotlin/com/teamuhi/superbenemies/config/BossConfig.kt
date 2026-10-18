@@ -15,6 +15,8 @@ object BossConfig {
     val CRUISE_HEIGHT: ForgeConfigSpec.IntValue
     val AGGRO_RANGE: ForgeConfigSpec.IntValue
     val GLOBAL_AGGRO: ForgeConfigSpec.BooleanValue
+    val TARGET_PRIORITY: ForgeConfigSpec.EnumValue<TargetPriority>
+    val MOB_SCAN_RANGE: ForgeConfigSpec.IntValue
     val RANDOM_TARGETING: ForgeConfigSpec.BooleanValue
     val ORBIT_RADIUS: ForgeConfigSpec.IntValue
 
@@ -43,6 +45,7 @@ object BossConfig {
     val ROCKET_COUNT: ForgeConfigSpec.IntValue
     val BOMB_COUNT: ForgeConfigSpec.IntValue
     val MISSILE_COUNT: ForgeConfigSpec.IntValue
+    val FLARE_COUNT: ForgeConfigSpec.IntValue
     val RESUPPLY_SECONDS: ForgeConfigSpec.IntValue
 
     val DEFENSIVE_FLARES: ForgeConfigSpec.BooleanValue
@@ -78,8 +81,23 @@ object BossConfig {
             .comment("Hunt the nearest player anywhere in the dimension and show the boss bar to everyone.")
             .define("globalAggro", true)
 
+        TARGET_PRIORITY = b
+            .comment(
+                "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS, MOBS_ONLY (never players) or OTHER_PLANES",
+                "(experimental: manned airplanes/helicopters and other bosses only).",
+                "Mobs are only engaged under open sky. Player dummies follow bossesTargetDummy and count as players."
+            )
+            .defineEnum("targetPriority", TargetPriority.PLAYERS)
+
+        MOB_SCAN_RANGE = b
+            .comment("Range (blocks) in which mobs are considered as targets, whatever globalAggro says. Only used with PLAYERS_AND_MOBS / MOBS_ONLY.")
+            .defineInRange("mobScanRange", 128, 32, 256)
+
         RANDOM_TARGETING = b
-            .comment("Pick a random player as target at the start of every attack. Never swapped mid-dive or bomb run.")
+            .comment(
+                "Pick a random target at the start of every attack (players first, mobs only when no player qualifies).",
+                "Never swapped mid-dive or bomb run."
+            )
             .define("randomTargeting", true)
 
         ORBIT_RADIUS = b
@@ -168,8 +186,11 @@ object BossConfig {
         MISSILE_COUNT = b
             .comment("AGM-65 missiles per load.")
             .defineInRange("missiles", 8, 1, 1_000)
+        FLARE_COUNT = b
+            .comment("Flare bursts per load when limitedAmmo is on.")
+            .defineInRange("flares", 24, 1, 1_000)
         RESUPPLY_SECONDS = b
-            .comment("Seconds spent resupplying (the flight there and back is extra).")
+            .comment("Seconds a withdrawn boss stays gone before its replacement (same health, full load) appears near the fight. The flight away is extra.")
             .defineInRange("resupplySeconds", 40, 0, 3_600)
 
         b.pop().push("behaviour")
@@ -209,12 +230,12 @@ object BossConfig {
         SPEC = b.build()
 
         ALL = listOf(
-            MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, RANDOM_TARGETING, ORBIT_RADIUS,
+            MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, TARGET_PRIORITY, MOB_SCAN_RANGE, RANDOM_TARGETING, ORBIT_RADIUS,
             CANNON_DAMAGE_MULT, ROCKET_DAMAGE_MULT, BOMB_DAMAGE_MULT, MISSILE_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, ROCKETS_ENABLED, BOMBS_ENABLED, MISSILES_ENABLED,
             GUN_RUN_CHANCE, GUN_RUN_BOMB_CHANCE, ROCKET_RUN_CHANCE, BOMB_RUN_CHANCE, MISSILE_ORBIT_CHANCE,
             ROCKET_MISSILE_RUN_CHANCE, DOUBLE_GUN_RUN_CHANCE, CANNON_ROCKET_STALL_CHANCE, ROCKET_BOMB_STALL_CHANCE,
-            LIMITED_AMMO, CANNON_ROUNDS, ROCKET_COUNT, BOMB_COUNT, MISSILE_COUNT, RESUPPLY_SECONDS,
+            LIMITED_AMMO, CANNON_ROUNDS, ROCKET_COUNT, BOMB_COUNT, MISSILE_COUNT, FLARE_COUNT, RESUPPLY_SECONDS,
             DEFENSIVE_FLARES, FLARE_MISS_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )
     }

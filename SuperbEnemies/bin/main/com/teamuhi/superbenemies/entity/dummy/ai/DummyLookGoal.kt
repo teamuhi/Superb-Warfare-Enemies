@@ -1,6 +1,6 @@
 package com.teamuhi.superbenemies.entity.dummy.ai
 
-import com.teamuhi.superbenemies.entity.dummy.PlayerDummyEntity
+import com.teamuhi.superbenemies.entity.dummy.HumanoidDummyEntity
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.ai.goal.Goal
@@ -19,10 +19,10 @@ import kotlin.math.sin
  * dummy is following a path (running to cover) only the head and pitch turn, so it faces where it is running.
  * The threat is re-picked every [SCAN_INTERVAL] ticks; aiming happens every tick.
  *
- * In ROAM mode ([PlayerDummyEntity.roaming]) the head instead traces the walking path (see [traceWalkingPath]) and,
+ * In ROAM mode ([HumanoidDummyEntity.roaming]) the head instead traces the walking path (see [traceWalkingPath]) and,
  * standing with no threat, glances around; with a threat it still faces it while standing.
  */
-class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
+class DummyLookGoal(private val dummy: HumanoidDummyEntity) : Goal() {
 
     private var threat: Entity? = null
     private var nextScanTick = 0
@@ -77,7 +77,7 @@ class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
                 dummy.yHeadRot = yaw
             }
         }
-        val wantedPitch = (-(Mth.atan2(aimY - dummy.eyeY, horizontal) * RAD_TO_DEG)).toFloat().coerceIn(-MAX_PITCH, MAX_PITCH)
+        val wantedPitch = (-(Mth.atan2(aimY - dummy.eyeY, horizontal) * RAD_TO_DEG)).toFloat().coerceIn(-dummy.maxLookPitch, dummy.maxLookPitch)
         dummy.xRot = Mth.approachDegrees(dummy.xRot, wantedPitch, MAX_TURN_PER_TICK)
     }
 
@@ -129,7 +129,6 @@ class DummyLookGoal(private val dummy: PlayerDummyEntity) : Goal() {
         const val SCAN_INTERVAL = 10
         const val PLAYER_RANGE = 32.0
         const val MAX_TURN_PER_TICK = 25f
-        const val MAX_PITCH = 60f
         const val RAD_TO_DEG = 57.29577951308232
 
         const val TRACE_LOOK_AHEAD = 2

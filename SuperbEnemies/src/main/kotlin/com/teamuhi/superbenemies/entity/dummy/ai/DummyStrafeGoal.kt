@@ -1,8 +1,7 @@
 package com.teamuhi.superbenemies.entity.dummy.ai
 
-import com.teamuhi.superbenemies.config.DummyConfig
 import com.teamuhi.superbenemies.config.DummyMovement
-import com.teamuhi.superbenemies.entity.dummy.PlayerDummyEntity
+import com.teamuhi.superbenemies.entity.dummy.HumanoidDummyEntity
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.ai.goal.Goal
 import java.util.EnumSet
@@ -13,7 +12,7 @@ import kotlin.math.sin
 /**
  * The dummy's movement, the way a player dodges: side-to-side strafing with optional jumps, sprint bursts and crouching.
  *
- * Runs in STRAFE mode, or for [PlayerDummyEntity.forcedStrafeUntil] ticks after the hide goal found no cover (in any
+ * Runs in STRAFE mode, or for [HumanoidDummyEntity.forcedStrafeUntil] ticks after the hide goal found no cover (in any
  * mode, ROAM included). In STATIC mode it only walks the dummy back to its spawn point if it was pushed away
  * (knockback, hiding), then stops. ROAM mode is [DummyRoamGoal]'s.
  *
@@ -21,7 +20,7 @@ import kotlin.math.sin
  * turns it). All inputs are re-issued every tick; the config options are read live, so toggling one mid-run takes effect
  * straight away. All state is per instance.
  */
-class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
+class DummyStrafeGoal(private val dummy: HumanoidDummyEntity) : Goal() {
 
     private var moveTicks = 0
     private var forward = 0f
@@ -69,7 +68,7 @@ class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
             return
         }
         val rng = dummy.getRandom()
-        val config = DummyConfig
+        val config = dummy.settings
 
         // A path left over from walking back would fight the strafe input.
         if (dummy.navigation.isInProgress) dummy.navigation.stop()
@@ -77,9 +76,9 @@ class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
         // --- crouch spell: slow, low, never while sprinting ---
         if (crouchTicks > 0) {
             crouchTicks--
-            if (!config.STRAFE_CROUCHING.get()) crouchTicks = 0
+            if (!config.crouching()) crouchTicks = 0
             if (crouchTicks == 0) dummy.setCrouched(false)
-        } else if (config.STRAFE_CROUCHING.get() && sprintTicks == 0 && rng.nextInt(CROUCH_CHANCE) == 0) {
+        } else if (config.crouching() && sprintTicks == 0 && rng.nextInt(CROUCH_CHANCE) == 0) {
             crouchTicks = CROUCH_MIN_TICKS + rng.nextInt(CROUCH_EXTRA_TICKS)
             dummy.setCrouched(true)
         }
@@ -87,9 +86,9 @@ class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
         // --- sprint burst: a random direction, vanilla's +30% comes with the sprint flag ---
         if (sprintTicks > 0) {
             sprintTicks--
-            if (!config.STRAFE_SPRINTING.get()) sprintTicks = 0
+            if (!config.sprinting()) sprintTicks = 0
             if (sprintTicks == 0) dummy.isSprinting = false
-        } else if (config.STRAFE_SPRINTING.get() && crouchTicks == 0 && rng.nextInt(SPRINT_CHANCE) == 0) {
+        } else if (config.sprinting() && crouchTicks == 0 && rng.nextInt(SPRINT_CHANCE) == 0) {
             sprintTicks = SPRINT_MIN_TICKS + rng.nextInt(SPRINT_EXTRA_TICKS)
             val angle = rng.nextFloat() * Mth.TWO_PI
             sprintForward = cos(angle)
@@ -98,7 +97,8 @@ class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
         }
 
         // --- jump ---
-        if (config.STRAFE_JUMPING.get() && dummy.onGround() && rng.nextInt(JUMP_CHANCE) == 0) dummy.hop()
+        // Only in STRAFE mode: the temporary fallback in ROAM / STATIC must not make the dummy bounce on the spot.
+        if (config.jumping() && config.movement() == DummyMovement.STRAFE && dummy.onGround() && rng.nextInt(JUMP_CHANCE) == 0) dummy.hop()
 
         // --- direction: sprint burst, else the current strafe leg; the leash overrides both ---
         if (sprintTicks == 0 && --moveTicks <= 0) pickLeg()
@@ -117,14 +117,14 @@ class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
     // ================================================================================================== helpers
 
     private fun strafing(): Boolean =
-        DummyConfig.MOVEMENT.get() == DummyMovement.STRAFE || dummy.tickCount < dummy.forcedStrafeUntil
+        dummy.settings.movement() == DummyMovement.STRAFE || dummy.tickCount < dummy.forcedStrafeUntil
 
     /**
      * STATIC mode only (ROAM has its own leash in [DummyRoamGoal], and walking back here would compete with it for the
      * move flag): pushed more than [RETURN_DISTANCE] away and a way back is not known to be blocked.
      */
     private fun driftedFromAnchor(): Boolean {
-        if (DummyConfig.MOVEMENT.get() != DummyMovement.STATIC) return false
+        if (dummy.settings.movement() != DummyMovement.STATIC) return false
         if (dummy.tickCount < giveUpUntil) return false
         val distance = dummy.distanceToAnchor() ?: return false
         return distance > RETURN_DISTANCE
@@ -150,7 +150,7 @@ class DummyStrafeGoal(private val dummy: PlayerDummyEntity) : Goal() {
         val dx = centre.x - dummy.x
         val dz = centre.z - dummy.z
         val distance = hypot(dx, dz)
-        if (distance <= DummyConfig.STRAFE_RADIUS.get() || distance < 1.0e-3) return null
+        if (distance <= dummy.settings.strafeRadius() || distance < 1.0e-3) return null
         return Pair(dx / distance, dz / distance)
     }
 

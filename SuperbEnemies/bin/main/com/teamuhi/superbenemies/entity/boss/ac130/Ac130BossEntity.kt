@@ -112,8 +112,15 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
     }
 
     /** Chat message to the players around the boss, and around [alsoNear] when given (same reach as the crippled / defeated broadcasts). */
-    fun announce(translationKey: String, style: Style, alsoNear: Vec3? = null) =
+    override fun announce(translationKey: String, style: Style, alsoNear: Vec3?) =
         lifecycle.broadcast(translationKey, style, alsoNear)
+
+    /** Health fraction a replacement boss starts with; negative = full health. Saved until the first tick used it. */
+    private var restoredHealth = -1f
+
+    override fun restoreHealthFraction(fraction: Float) {
+        restoredHealth = fraction
+    }
 
     /** True for any [BossCrewEntity] that is currently a passenger of this boss. */
     override fun isCrew(entity: Entity?): Boolean = entity is BossCrewEntity && entity.vehicle === this
@@ -129,6 +136,10 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
     override fun defensiveFlares(): Boolean = Ac130Config.DEFENSIVE_FLARES.get()
 
     override fun flareMissChance(): Double = Ac130Config.FLARE_MISS_CHANCE.get() / 100.0
+
+    override fun limitedAmmo(): Boolean = Ac130Config.LIMITED_AMMO.get()
+
+    override fun flareAmmoLoad(): Int = Ac130Config.FLARE_COUNT.get()
 
     /** Unit vector of the current heading in the horizontal plane (Minecraft yaw convention). */
     private fun horizontalLook(): Vec3 {
@@ -161,8 +172,10 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
         }
 
         applyVehicleOverride()
-        health = getMaxHealth()
+        health = if (restoredHealth > 0f) restoredHealth * getMaxHealth() else getMaxHealth()
+        restoredHealth = -1f
         applyWeaponTuning()
+        if (Ac130Config.LIMITED_AMMO.get()) decoyCount = Ac130Config.FLARE_COUNT.get()
 
         if (hasEnergyStorage()) energy = maxEnergy
         engineStart = true
@@ -252,7 +265,11 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
             inventory.setStackInSlot(0, ItemStack(SbwItems.CREATIVE_AMMO_BOX.get()))
         }
         if (hasEnergyStorage() && energy < maxEnergy / 2) energy = maxEnergy
-        if (decoyCount < 2) decoyCount = computed().decoyMagazineSize
+        if (Ac130Config.LIMITED_AMMO.get()) {
+            decoyCount = minOf(decoyCount, Ac130Config.FLARE_COUNT.get())
+        } else if (decoyCount < 2) {
+            decoyCount = computed().decoyMagazineSize
+        }
     }
 
     /** Creates one crew member and puts it in [wanted]: mount first, then [changeSeat] if SBW chose another seat. */
@@ -391,6 +408,7 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
     override fun addAdditionalSaveData(compound: CompoundTag) {
         super.addAdditionalSaveData(compound)
         compound.putBoolean(TAG_INITIALISED, initialised)
+        if (restoredHealth > 0f) compound.putFloat(TAG_RESTORED_HEALTH, restoredHealth)
         lifecycle.save(compound)
         if (homeSet) {
             compound.putDouble(TAG_HOME_X, homePos.x)
@@ -405,6 +423,7 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
     override fun readAdditionalSaveData(compound: CompoundTag) {
         super.readAdditionalSaveData(compound)
         initialised = compound.getBoolean(TAG_INITIALISED)
+        restoredHealth = if (compound.contains(TAG_RESTORED_HEALTH)) compound.getFloat(TAG_RESTORED_HEALTH) else -1f
         lifecycle.load(compound)
         if (compound.contains(TAG_HOME_X)) {
             homePos = Vec3(compound.getDouble(TAG_HOME_X), compound.getDouble(TAG_HOME_Y), compound.getDouble(TAG_HOME_Z))
@@ -417,6 +436,7 @@ class Ac130BossEntity(type: EntityType<Ac130BossEntity>, level: Level) : Ac130hE
         val LOOT_TABLE = ResourceLocation(SuperbEnemies.MOD_ID, "entities/ac130_angel_of_death")
 
         const val TAG_INITIALISED = "BossInitialised"
+        const val TAG_RESTORED_HEALTH = "BossRestoredHealth"
         const val TAG_HOME_X = "BossHomeX"
         const val TAG_HOME_Y = "BossHomeY"
         const val TAG_HOME_Z = "BossHomeZ"

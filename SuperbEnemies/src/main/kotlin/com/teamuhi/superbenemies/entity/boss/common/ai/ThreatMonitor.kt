@@ -38,6 +38,7 @@ class ThreatMonitor<T>(private val boss: T) where T : VehicleEntity, T : BossAir
     private var flaresLeft = 0
     private var nextFlareTick = 0
     private var lastScanTick = Int.MIN_VALUE / 2
+    private var flareInputPending = false
 
     /**
      * @return true exactly once for each new threat (the tick on which the reaction is triggered), so the brain can
@@ -47,6 +48,7 @@ class ThreatMonitor<T>(private val boss: T) where T : VehicleEntity, T : BossAir
         val now = boss.tickCount
         if (boss.crippled || boss.isWreck) {
             flaresLeft = 0
+            flareInputPending = false
             return false
         }
         driveFlares(now)
@@ -54,6 +56,14 @@ class ThreatMonitor<T>(private val boss: T) where T : VehicleEntity, T : BossAir
         if (now - lastScanTick < SCAN_INTERVAL) return false
         lastScanTick = now
         return scan(now)
+    }
+
+    /** Applies a staged flare after the boss has queued its weapon shots for this tick. */
+    fun applyFlareInput() {
+        if (flareInputPending) {
+            boss.decoyInputDown = true
+            flareInputPending = false
+        }
     }
 
     private fun scan(now: Int): Boolean {
@@ -142,9 +152,11 @@ class ThreatMonitor<T>(private val boss: T) where T : VehicleEntity, T : BossAir
     /** Releases one flare burst per [FLARE_INTERVAL] ticks while a response is pending. */
     private fun driveFlares(now: Int) {
         if (flaresLeft <= 0 || now < nextFlareTick) return
-        // Never wait for SBW's decoy reload timer: the boss has unlimited flares.
-        if (boss.decoyCount < 1) boss.decoyCount = boss.computed().decoyMagazineSize
-        boss.decoyInputDown = true
+        if (boss.decoyCount < 1) {
+            if (boss.limitedAmmo()) return
+            boss.decoyCount = boss.computed().decoyMagazineSize
+        }
+        flareInputPending = true
         flaresLeft--
         nextFlareTick = now + FLARE_INTERVAL
     }

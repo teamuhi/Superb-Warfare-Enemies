@@ -2,18 +2,6 @@ package com.teamuhi.superbenemies.config
 
 import net.minecraftforge.common.ForgeConfigSpec
 
-/** What the AC-130 may pick as its target (`ac130_boss.targetPriority`). */
-enum class Ac130TargetPriority(val players: Boolean, val mobs: Boolean) {
-    /** Survival / adventure players only; mobs are ignored. */
-    PLAYERS(players = true, mobs = false),
-
-    /** Players and any living mob alike: the nearest one is engaged. */
-    PLAYERS_AND_MOBS(players = true, mobs = true),
-
-    /** Living mobs only; players are never attacked (it still flies, and players can still shoot it down). */
-    MOBS_ONLY(players = false, mobs = true)
-}
-
 /**
  * Common config of the AC-130 boss, written to `config/superbenemies-ac130-common.toml`.
  *
@@ -31,7 +19,7 @@ object Ac130Config {
     val AGGRO_RANGE: ForgeConfigSpec.IntValue
     val GLOBAL_AGGRO: ForgeConfigSpec.BooleanValue
     val ORBIT_RADIUS: ForgeConfigSpec.IntValue
-    val TARGET_PRIORITY: ForgeConfigSpec.EnumValue<Ac130TargetPriority>
+    val TARGET_PRIORITY: ForgeConfigSpec.EnumValue<TargetPriority>
     val MOB_SCAN_RANGE: ForgeConfigSpec.IntValue
     val RANDOM_TARGETING: ForgeConfigSpec.BooleanValue
     val RANDOM_TARGET_SECONDS: ForgeConfigSpec.IntValue
@@ -54,6 +42,7 @@ object Ac130Config {
     val CANNON_ROUNDS: ForgeConfigSpec.IntValue
     val BOFORS_ROUNDS: ForgeConfigSpec.IntValue
     val HOWITZER_ROUNDS: ForgeConfigSpec.IntValue
+    val FLARE_COUNT: ForgeConfigSpec.IntValue
     val RESUPPLY_SECONDS: ForgeConfigSpec.IntValue
 
     val DEFENSIVE_FLARES: ForgeConfigSpec.BooleanValue
@@ -89,18 +78,19 @@ object Ac130Config {
             .define("globalAggro", true)
 
         ORBIT_RADIUS = b
-            .comment("Radius (blocks) of the orbit around the target. The AI adjusts it between 0.6x and 1.8x.")
-            .defineInRange("orbitRadius", 120, 60, 400)
+            .comment("Standoff radius (blocks) of the orbit around the target. The AI adjusts it between 0.45x and 1.8x.")
+            .defineInRange("orbitRadius", 180, 100, 400)
 
         TARGET_PRIORITY = b
             .comment(
-                "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS (nearest) or MOBS_ONLY.",
+                "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS (nearest), MOBS_ONLY or OTHER_PLANES",
+                "(experimental: manned airplanes/helicopters and other bosses only).",
                 "Mobs are only engaged under open sky."
             )
-            .defineEnum("targetPriority", Ac130TargetPriority.PLAYERS_AND_MOBS)
+            .defineEnum("targetPriority", TargetPriority.PLAYERS_AND_MOBS)
 
         MOB_SCAN_RANGE = b
-            .comment("Range (blocks) in which mobs are considered as targets. Unused if targetPriority is PLAYERS.")
+            .comment("Range (blocks) in which mobs are considered as targets. Only used with PLAYERS_AND_MOBS / MOBS_ONLY.")
             .defineInRange("mobScanRange", 128, 32, 256)
 
         RANDOM_TARGETING = b
@@ -182,8 +172,11 @@ object Ac130Config {
         HOWITZER_ROUNDS = b
             .comment("105mm howitzer rounds per load.")
             .defineInRange("howitzer105mmRounds", 30, 1, 1_000)
+        FLARE_COUNT = b
+            .comment("Flare bursts per load when limitedAmmo is on.")
+            .defineInRange("flares", 32, 1, 1_000)
         RESUPPLY_SECONDS = b
-            .comment("Seconds spent resupplying (the flight there and back is extra).")
+            .comment("Seconds a withdrawn boss stays gone before its replacement (same health, full load) appears near the fight. The flight away is extra.")
             .defineInRange("resupplySeconds", 40, 0, 3_600)
 
         b.pop().push("ac130_behaviour")
@@ -229,7 +222,7 @@ object Ac130Config {
             CANNON_ENABLED, BOFORS_ENABLED, HOWITZER_ENABLED,
             CANNON_SIMULTANEOUS, BOFORS_SIMULTANEOUS, HOWITZER_SIMULTANEOUS,
             SPLIT_FIRE_CHANCE, FOCUS_FIRE_CHANCE,
-            LIMITED_AMMO, CANNON_ROUNDS, BOFORS_ROUNDS, HOWITZER_ROUNDS, RESUPPLY_SECONDS,
+            LIMITED_AMMO, CANNON_ROUNDS, BOFORS_ROUNDS, HOWITZER_ROUNDS, FLARE_COUNT, RESUPPLY_SECONDS,
             DEFENSIVE_FLARES, FLARE_MISS_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )
     }

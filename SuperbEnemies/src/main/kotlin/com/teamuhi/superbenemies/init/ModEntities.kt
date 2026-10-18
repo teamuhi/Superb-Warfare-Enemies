@@ -5,6 +5,7 @@ import com.teamuhi.superbenemies.entity.boss.a10.A10WarthogBossEntity
 import com.teamuhi.superbenemies.entity.boss.ac130.Ac130BossEntity
 import com.teamuhi.superbenemies.entity.boss.common.BossCrewEntity
 import com.teamuhi.superbenemies.entity.dummy.PlayerDummyEntity
+import com.teamuhi.superbenemies.entity.soldier.DummySoldierEntity
 import net.minecraft.world.entity.EntityType
 import net.minecraft.world.entity.Mob
 import net.minecraft.world.entity.MobCategory
@@ -80,9 +81,23 @@ object ModEntities {
                 .build("player_dummy")
         }
 
+    /**
+     * The Dummy Soldier: a player-shaped soldier carrying an Igla MANPADS that hunts the boss aircraft (see
+     * [DummySoldierEntity]). Same category, hitbox and tracking range as the player dummy.
+     */
+    @JvmField
+    val DUMMY_SOLDIER: RegistryObject<EntityType<DummySoldierEntity>> =
+        REGISTRY.register("dummy_soldier") {
+            EntityType.Builder.of(::DummySoldierEntity, MobCategory.MISC)
+                .sized(0.6f, 1.8f)
+                .setTrackingRange(64)
+                .build("dummy_soldier")
+        }
+
     @SubscribeEvent
     fun registerAttributes(event: EntityAttributeCreationEvent) {
         event.put(BOSS_PILOT.get(), Mob.createMobAttributes().build())
         event.put(PLAYER_DUMMY.get(), PlayerDummyEntity.createAttributes().build())
+        event.put(DUMMY_SOLDIER.get(), DummySoldierEntity.createAttributes().build())
     }
 }

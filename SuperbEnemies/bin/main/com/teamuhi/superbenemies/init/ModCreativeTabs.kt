@@ -21,6 +21,7 @@ object ModCreativeTabs {
                 output.accept(ModItems.A10_BOSS_SPAWN_EGG.get())
                 output.accept(ModItems.AC130_BOSS_SPAWN_EGG.get())
                 output.accept(ModItems.PLAYER_DUMMY_SPAWN_EGG.get())
+                output.accept(ModItems.DUMMY_SOLDIER_SPAWN_EGG.get())
             }
             .build()
     }
