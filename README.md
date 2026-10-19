@@ -1,4 +1,4 @@
-# Superb Warfare Enemies
+# Superb Enemies
 
 Enemy and boss addons for [Superb Warfare](https://github.com/atsuishio/SuperbWarfare) on Minecraft 1.20.1 and Forge 47.
 
