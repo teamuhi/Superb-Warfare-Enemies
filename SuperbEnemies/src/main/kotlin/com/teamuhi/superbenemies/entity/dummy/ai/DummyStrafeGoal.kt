@@ -158,6 +158,7 @@ class DummyStrafeGoal(private val dummy: HumanoidDummyEntity) : Goal() {
     private fun walkBack() {
         val centre = dummy.anchorCenter() ?: return
         if (dummy.navigation.isInProgress) return
+        if (!DummyAi.pathfinds.tryTake(dummy.level())) return
         if (!dummy.navigation.moveTo(centre.x, centre.y, centre.z, 1.0)) {
             giveUpUntil = dummy.tickCount + GIVE_UP_TICKS
         }

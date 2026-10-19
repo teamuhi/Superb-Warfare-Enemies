@@ -73,6 +73,9 @@ class DummyRoamGoal(private val dummy: HumanoidDummyEntity) : Goal() {
         sprintLeg = false
     }
 
+    /** The last [findPath] stopped for lack of path budget, not for lack of a spot: retry next tick, do not pause. */
+    private var deferred = false
+
     override fun tick() {
         when (phase) {
             Phase.PAUSE -> tickPause()
@@ -87,7 +90,8 @@ class DummyRoamGoal(private val dummy: HumanoidDummyEntity) : Goal() {
         // The pause option was lowered while waiting: do not sit out the old, longer wait.
         pauseUntil = minOf(pauseUntil, now + dummy.settings.roamPauseSeconds() * 20)
         if (now < pauseUntil) return
-        if (!startLeg()) enterPause(NO_SPOT_PAUSE_TICKS)
+        deferred = false
+        if (!startLeg() && !deferred) enterPause(NO_SPOT_PAUSE_TICKS)
     }
 
     private fun tickWalk() {
@@ -166,6 +170,11 @@ class DummyRoamGoal(private val dummy: HumanoidDummyEntity) : Goal() {
             val z = floor(dummy.z + sin(angle) * distance).toInt()
             if (anchor != null && hypot(x + 0.5 - anchor.x, z + 0.5 - anchor.z) > ROAM_LEASH) return@repeat
             val spot = standingSpot(x, z) ?: return@repeat
+            // Out of path searches for this tick (other dummies used them): try the whole search again next tick.
+            if (!DummyAi.pathfinds.tryTake(dummy.level())) {
+                deferred = true
+                return null
+            }
             val path = dummy.navigation.createPath(spot, 1)
             if (path != null && path.canReach()) return path
         }

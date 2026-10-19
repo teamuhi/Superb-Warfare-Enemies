@@ -44,6 +44,10 @@ object ClientSetup {
                             tab("a10"), BossConfig.SPEC, BossConfig.ALL,
                             requires = mapOf(
                                 BossConfig.FLARE_MISS_CHANCE to BossConfig.DEFENSIVE_FLARES,
+                                BossConfig.DEFAULT_FLARE_CHANCE to BossConfig.DEFENSIVE_FLARES,
+                                BossConfig.BARREL_ROLL_FLARE_CHANCE to BossConfig.DEFENSIVE_FLARES,
+                                BossConfig.CLIMB_FLARE_CHANCE to BossConfig.DEFENSIVE_FLARES,
+                                BossConfig.SIDE_FLARES_CHANCE to BossConfig.DEFENSIVE_FLARES,
                                 BossConfig.CANNON_DAMAGE_MULT to BossConfig.CANNON_ENABLED,
                                 BossConfig.ROCKET_DAMAGE_MULT to BossConfig.ROCKETS_ENABLED,
                                 BossConfig.BOMB_DAMAGE_MULT to BossConfig.BOMBS_ENABLED,

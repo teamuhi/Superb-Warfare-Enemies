@@ -1,0 +1,35 @@
+modLoader = "kotlinforforge"
+loaderVersion = "${loader_version_range}"
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "${mod_authors}"
+description = '''${mod_description}'''
+# Client-only mod: it may be installed on a client that joins a server without it (and the server may omit it).
+displayTest = "IGNORE_ALL_VERSION"
+
+[[dependencies.${mod_id}]]
+modId = "forge"
+mandatory = true
+versionRange = "${forge_version_range}"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.${mod_id}]]
+modId = "minecraft"
+mandatory = true
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "CLIENT"
+
+# Optional: with Superb Warfare installed, a perspective anchored to one of its vehicles also follows the vehicle's
+# pitch and roll. Without it the mod works with the player, plain vehicles, other entities and fixed world spots.
+[[dependencies.${mod_id}]]
+modId = "superbwarfare"
+mandatory = false
+versionRange = "${superbwarfare_version_range}"
+ordering = "AFTER"
+side = "CLIENT"

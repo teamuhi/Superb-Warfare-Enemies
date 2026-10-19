@@ -9,3 +9,11 @@ SuperbEnemies/build/
 SuperbEnemies/.gradle/
 SuperbEnemies/run/
 SuperbEnemies/.idea/
+
+# Superb Camera build output
+SuperbCamera/libs/*.jar
+SuperbCamera/build/
+SuperbCamera/.gradle/
+SuperbCamera/run/
+SuperbCamera/.idea/
+SuperbCamera/bin/

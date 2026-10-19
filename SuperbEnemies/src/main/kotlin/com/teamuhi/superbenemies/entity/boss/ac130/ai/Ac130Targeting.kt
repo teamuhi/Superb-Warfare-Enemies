@@ -16,16 +16,14 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.Mob
-import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import java.util.UUID
 
 /**
- * Target selection for the AC-130 boss: players and/or every living mob under open sky, as `targetPriority` allows
- * (re-read every tick, so switching it drops a target that is no longer allowed straight away). `OTHER_PLANES`
- * (experimental) hunts manned aircraft instead, see [isEnemyPlane]; they follow the player range rule and the same
- * choice rules, and are exempt from the open-sky rule.
+ * Target selection for the AC-130 boss: players and/or every living mob, as `targetPriority` allows (re-read every
+ * tick, so switching it drops a target that is no longer allowed straight away). `OTHER_PLANES` (experimental) hunts
+ * manned aircraft instead, see [isEnemyPlane]; they follow the player range rule and the same choice rules.
  *
  * Unlike the A-10 the gunship does not care what kind of thing it shells, so animals and villagers count the same as
  * monsters. Rules, in priority order: the last thing that hurt the boss (if it is a valid candidate), then the current
@@ -35,8 +33,7 @@ import java.util.UUID
  *
  * Dummies (player dummy, dummy soldier) are a special case, controlled by their own `bossesTarget...` option (read live): with it on a dummy is
  * a player-class candidate (listed from the dummy tracker when `targetPriority` allows players, subject to the same range
- * rule, exempt from the open-sky rule so a dummy hiding under a roof still gets shelled, and never added a second time
- * through the mob query); with it off it is an ordinary mob, sky rule included.
+ * rule, and never added a second time through the mob query); with it off it is an ordinary mob.
  *
  * With `randomTargeting` the choice above is replaced by a random draw every `randomTargetSeconds` (see [randomChoice]).
  *
@@ -125,6 +122,13 @@ class Ac130Targeting(private val boss: Ac130BossEntity) {
         return now + (SCAN_INTERVAL - phase)
     }
 
+    /** Re-scans and replaces the current target with another valid candidate when one is available. */
+    fun snapToAnotherTarget(level: ServerLevel, orbitRadius: Double): Boolean {
+        val previous = target
+        pickTarget(level, orbitRadius, forceAlternate = true)
+        return target !== previous
+    }
+
     // ================================================================================================== validity
 
     /** Cheap per-tick check of the current target. Heavy conditions (sky exposure, scan box) are scan-only. */
@@ -172,29 +176,17 @@ class Ac130Targeting(private val boss: Ac130BossEntity) {
         return dx * dx + dz * dz <= limit * limit
     }
 
-    /**
-     * A mob worth shelling: alive, attackable, not one of the boss's own crew and standing under open sky. The sky rule
-     * keeps the gunship from circling forever over a cave mob it cannot hit (players are exempt, like the A-10).
-     */
+    /** A mob worth shelling: alive, attackable, and not one of the boss's own crew. Shells ignore block cover. */
     private fun eligibleMob(mob: Mob): Boolean {
         if (!mob.isAlive || mob.isRemoved || !mob.isAttackable || mob.isInvulnerable) return false
         if (mob is HumanoidDummyEntity && dummiesArePlayers(mob)) return false // handled as a player-class candidate
         if (mob is BossCrewEntity || mob.rootVehicle === boss || boss.isCrew(mob)) return false
-        return underOpenSky(mob)
-    }
-
-    /** Never loads a chunk: an unloaded chunk counts as "not exposed". */
-    private fun underOpenSky(mob: Mob): Boolean {
-        val x = Math.floor(mob.x).toInt()
-        val z = Math.floor(mob.z).toInt()
-        val chunk = boss.level().chunkSource.getChunkNow(x shr 4, z shr 4) ?: return false
-        val surface = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x and 15, z and 15)
-        return mob.y >= surface - SKY_TOLERANCE
+        return true
     }
 
     // ================================================================================================== choice
 
-    private fun pickTarget(level: ServerLevel, orbitRadius: Double) {
+    private fun pickTarget(level: ServerLevel, orbitRadius: Double, forceAlternate: Boolean = false) {
         val now = boss.tickCount
         val bossPos = boss.position()
         val global = Ac130Config.GLOBAL_AGGRO.get()
@@ -248,7 +240,11 @@ class Ac130Targeting(private val boss: Ac130BossEntity) {
         val attacker = if (attackerId.isNullOrEmpty()) null else candidates.firstOrNull { riddenBy(it, attackerId) }
         val nearest = candidates.minByOrNull { distance(it) }
 
-        val chosen = if (Ac130Config.RANDOM_TARGETING.get()) {
+        val chosen = if (forceAlternate) {
+            val alternates = candidates
+                .filter { it !== target && it.rootVehicle !== target?.rootVehicle }
+            alternates.takeIf { it.isNotEmpty() }?.let { it[boss.getRandom().nextInt(it.size)] } ?: target
+        } else if (Ac130Config.RANDOM_TARGETING.get()) {
             randomChoice(candidates, held, now)
         } else {
             attacker ?: when {
@@ -354,8 +350,6 @@ class Ac130Targeting(private val boss: Ac130BossEntity) {
         const val LOSE_TARGET_FACTOR = 1.5
         const val SWITCH_FACTOR = 0.7 // a candidate must be at least 30% nearer to steal the lock
         const val MIN_DWELL_TICKS = 200
-        const val SKY_TOLERANCE = 2
-
         const val VELOCITY_SMOOTHING = 0.3
         const val TELEPORT_DISTANCE_SQR = 20.0 * 20.0
     }

@@ -37,6 +37,7 @@ object Ac130Config {
     val HOWITZER_SIMULTANEOUS: ForgeConfigSpec.BooleanValue
     val SPLIT_FIRE_CHANCE: ForgeConfigSpec.IntValue
     val FOCUS_FIRE_CHANCE: ForgeConfigSpec.IntValue
+    val LONG_BURST_TARGET_SWITCH_CHANCE: ForgeConfigSpec.IntValue
 
     val LIMITED_AMMO: ForgeConfigSpec.BooleanValue
     val CANNON_ROUNDS: ForgeConfigSpec.IntValue
@@ -84,8 +85,7 @@ object Ac130Config {
         TARGET_PRIORITY = b
             .comment(
                 "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS (nearest), MOBS_ONLY or OTHER_PLANES",
-                "(experimental: manned airplanes/helicopters and other bosses only).",
-                "Mobs are only engaged under open sky."
+                "(experimental: manned airplanes/helicopters and other bosses only)."
             )
             .defineEnum("targetPriority", TargetPriority.PLAYERS_AND_MOBS)
 
@@ -158,6 +158,12 @@ object Ac130Config {
             )
             .defineInRange("focusFireChance", 20, 0, 100)
 
+        LONG_BURST_TARGET_SWITCH_CHANCE = b
+            .comment(
+                "Chance (percent) that a new long 25mm cannon burst snaps to another valid target. 0 = never. Read live."
+            )
+            .defineInRange("longBurstTargetSwitchChance", 10, 0, 100)
+
         b.pop().push("ac130_ammo")
 
         LIMITED_AMMO = b
@@ -221,7 +227,7 @@ object Ac130Config {
             CANNON_DAMAGE_MULT, BOFORS_DAMAGE_MULT, HOWITZER_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, BOFORS_ENABLED, HOWITZER_ENABLED,
             CANNON_SIMULTANEOUS, BOFORS_SIMULTANEOUS, HOWITZER_SIMULTANEOUS,
-            SPLIT_FIRE_CHANCE, FOCUS_FIRE_CHANCE,
+            SPLIT_FIRE_CHANCE, FOCUS_FIRE_CHANCE, LONG_BURST_TARGET_SWITCH_CHANCE,
             LIMITED_AMMO, CANNON_ROUNDS, BOFORS_ROUNDS, HOWITZER_ROUNDS, FLARE_COUNT, RESUPPLY_SECONDS,
             DEFENSIVE_FLARES, FLARE_MISS_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )

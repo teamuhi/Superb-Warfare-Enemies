@@ -149,6 +149,7 @@ class DummyHideGoal(private val dummy: HumanoidDummyEntity) : Goal() {
 
         dummy.isSprinting = true
         if (!dummy.navigation.isInProgress) {
+            if (!DummyAi.pathfinds.tryTake(dummy.level())) return // path budget used up this tick: wait one tick
             // moveTo returns false when there is no path; the next tick then picks the next candidate.
             if (!dummy.navigation.moveTo(target.x + 0.5, target.y.toDouble(), target.z + 0.5, 1.0)) {
                 cover = null
@@ -193,7 +194,10 @@ class DummyHideGoal(private val dummy: HumanoidDummyEntity) : Goal() {
             finished = true
             return
         }
-        if (dummy.navigation.isDone && !dummy.navigation.moveTo(home.x, home.y, home.z, 1.0)) finished = true
+        if (dummy.navigation.isDone) {
+            if (!DummyAi.pathfinds.tryTake(dummy.level())) return
+            if (!dummy.navigation.moveTo(home.x, home.y, home.z, 1.0)) finished = true
+        }
     }
 
     // ================================================================================================== cover search

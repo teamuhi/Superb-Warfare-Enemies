@@ -150,7 +150,13 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
      * @param plan per-gun aim orders that replace [aim] (split / focus fire); with a plan every ready gun fires at once,
      *        whatever the `simultaneous` options say, since sharing the turns would defeat the pattern
      */
-    fun tick(aim: Entity?, aimVelocity: Vec3, mayFire: Boolean, plan: Ac130FirePlan? = null) {
+    fun tick(
+        aim: Entity?,
+        aimVelocity: Vec3,
+        mayFire: Boolean,
+        plan: Ac130FirePlan? = null,
+        onLongBurstStart: () -> Unit = {}
+    ) {
         val now = boss.tickCount
         if (now >= nextScatterTick) {
             nextScatterTick = now + SCATTER_REROLL_TICKS
@@ -200,7 +206,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
                     if (gun in allowed && wanted.length() <= MAX_RANGE &&
                         (st.errorDeg <= FIRE_ANGLE || landsNear(gun, origin, point, st))
                     ) {
-                        tryFire(gun, gunner, st, now)
+                        tryFire(gun, gunner, st, now, onLongBurstStart)
                         continue
                     }
                 }
@@ -437,7 +443,13 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
 
     // ================================================================================================== firing
 
-    private fun tryFire(gun: Ac130Gun, gunner: BossCrewEntity, st: GunState, now: Int) {
+    private fun tryFire(
+        gun: Ac130Gun,
+        gunner: BossCrewEntity,
+        st: GunState,
+        now: Int,
+        onLongBurstStart: () -> Unit
+    ) {
         if (boss.getGunData(gun.seat)?.canShoot(boss.ammoSupplier) != true) {
             // Reloading / overheated: wait it out. A short back-off keeps a burst from restarting mid-reload.
             if (gun == Ac130Gun.M61) {
@@ -447,18 +459,29 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
             return
         }
         when (gun) {
-            Ac130Gun.M61 -> fireCannon(gun, gunner, st, now)
+            Ac130Gun.M61 -> fireCannon(gun, gunner, st, now, onLongBurstStart)
             Ac130Gun.BOFORS -> if (now >= st.nextShot) shoot(gun, gunner, st, now, rateInterval(gun))
             Ac130Gun.M102 -> if (now >= st.nextShot) shoot(gun, gunner, st, now, howitzerCooldown())
         }
     }
 
     /** Bursts of 45-90 ticks separated by 2-4 tick pauses (final phase: x0.6), one round per `1200/rpm` ticks. */
-    private fun fireCannon(gun: Ac130Gun, gunner: BossCrewEntity, st: GunState, now: Int) {
+    private fun fireCannon(
+        gun: Ac130Gun,
+        gunner: BossCrewEntity,
+        st: GunState,
+        now: Int,
+        onLongBurstStart: () -> Unit
+    ) {
         if (now - st.lastCall > BURST_GAP_RESET) st.burstEnd = 0
         st.lastCall = now
         if (now < st.pauseUntil) return
-        if (st.burstEnd == 0) st.burstEnd = now + between(CANNON_BURST_MIN, CANNON_BURST_MAX)
+        if (st.burstEnd == 0) {
+            st.burstEnd = now + between(CANNON_BURST_MIN, CANNON_BURST_MAX)
+            if (boss.getRandom().nextInt(100) < Ac130Config.LONG_BURST_TARGET_SWITCH_CHANCE.get()) {
+                onLongBurstStart()
+            }
+        }
         if (now >= st.burstEnd) {
             st.burstEnd = 0
             st.pauseUntil = now + scaledPause(between(CANNON_PAUSE_MIN, CANNON_PAUSE_MAX))

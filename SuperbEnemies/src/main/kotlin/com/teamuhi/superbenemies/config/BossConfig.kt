@@ -50,6 +50,10 @@ object BossConfig {
 
     val DEFENSIVE_FLARES: ForgeConfigSpec.BooleanValue
     val FLARE_MISS_CHANCE: ForgeConfigSpec.IntValue
+    val DEFAULT_FLARE_CHANCE: ForgeConfigSpec.IntValue
+    val BARREL_ROLL_FLARE_CHANCE: ForgeConfigSpec.IntValue
+    val CLIMB_FLARE_CHANCE: ForgeConfigSpec.IntValue
+    val SIDE_FLARES_CHANCE: ForgeConfigSpec.IntValue
     val TAUNT_ENABLED: ForgeConfigSpec.BooleanValue
     val IGNORE_BLOCK_COLLISIONS: ForgeConfigSpec.BooleanValue
     val BOSS_BAR_RANGE: ForgeConfigSpec.IntValue
@@ -203,6 +207,22 @@ object BossConfig {
             .comment("With defensiveFlares: chance (percent) of missing an incoming missile and releasing no flares.")
             .defineInRange("flareMissChance", 10, 0, 100)
 
+        DEFAULT_FLARE_CHANCE = b
+            .comment("Relative chance (percent) of releasing flares without an evasive maneuver. Disabled when defensiveFlares is off.")
+            .defineInRange("defaultFlareChance", 25, 0, 100)
+
+        BARREL_ROLL_FLARE_CHANCE = b
+            .comment("Relative chance (percent) of using a barrel roll while releasing flares. Disabled when defensiveFlares is off.")
+            .defineInRange("barrelRollFlareChance", 25, 0, 100)
+
+        CLIMB_FLARE_CHANCE = b
+            .comment("Relative chance (percent) of climbing while releasing flares. Disabled when defensiveFlares is off.")
+            .defineInRange("climbFlareChance", 25, 0, 100)
+
+        SIDE_FLARES_CHANCE = b
+            .comment("Relative chance (percent) of yawing and pitching sideways while releasing flares. Disabled when defensiveFlares is off.")
+            .defineInRange("sideFlaresChance", 25, 0, 100)
+
         TAUNT_ENABLED = b
             .comment("Whether the boss may taunt: a low flyby or barrel roll near the player, dropping flares. Harmless.")
             .define("tauntEnabled", true)
@@ -236,7 +256,8 @@ object BossConfig {
             GUN_RUN_CHANCE, GUN_RUN_BOMB_CHANCE, ROCKET_RUN_CHANCE, BOMB_RUN_CHANCE, MISSILE_ORBIT_CHANCE,
             ROCKET_MISSILE_RUN_CHANCE, DOUBLE_GUN_RUN_CHANCE, CANNON_ROCKET_STALL_CHANCE, ROCKET_BOMB_STALL_CHANCE,
             LIMITED_AMMO, CANNON_ROUNDS, ROCKET_COUNT, BOMB_COUNT, MISSILE_COUNT, FLARE_COUNT, RESUPPLY_SECONDS,
-            DEFENSIVE_FLARES, FLARE_MISS_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
+            DEFENSIVE_FLARES, FLARE_MISS_CHANCE, DEFAULT_FLARE_CHANCE, BARREL_ROLL_FLARE_CHANCE, CLIMB_FLARE_CHANCE,
+            SIDE_FLARES_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )
     }
 }

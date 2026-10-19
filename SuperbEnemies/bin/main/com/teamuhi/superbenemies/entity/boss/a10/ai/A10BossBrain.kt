@@ -97,6 +97,10 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private var resumeTicks = 0
     private var evadeSide = 1.0
     private var evadeDuration = 35
+    private var evadeManeuver = FlareManeuver.DEFAULT
+    private var evadeRolled = 0.0
+    private var evadeRollTicks = 0
+    private var evadeLastRoll = 0f
 
     // --- per-attack bookkeeping ---
     private var extendDuration = 80
@@ -211,6 +215,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     }
 
     private enum class TauntPhase { SETUP, RUN }
+
+    private enum class FlareManeuver { DEFAULT, BARREL_ROLL, CLIMB, SIDE_FLARES }
 
     /** Stall turn: straight up, the tail swings round while the nose hangs up, then the nose drops onto the target. */
     private enum class StallPhase { CLIMB, SWING, DROP }
@@ -732,7 +738,28 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         resumeTicks = stateTicks
         evadeSide = if (boss.getRandom().nextBoolean()) 1.0 else -1.0
         evadeDuration = randomBetween(30, 40)
+        evadeManeuver = if (BossConfig.DEFENSIVE_FLARES.get()) selectFlareManeuver() else FlareManeuver.DEFAULT
+        evadeRolled = 0.0
+        evadeRollTicks = 0
+        evadeLastRoll = boss.roll
         enter(BossState.EVADE)
+    }
+
+    private fun selectFlareManeuver(): FlareManeuver {
+        val defaultChance = BossConfig.DEFAULT_FLARE_CHANCE.get()
+        val barrelRollChance = BossConfig.BARREL_ROLL_FLARE_CHANCE.get()
+        val climbChance = BossConfig.CLIMB_FLARE_CHANCE.get()
+        val sideFlaresChance = BossConfig.SIDE_FLARES_CHANCE.get()
+        val total = defaultChance + barrelRollChance + climbChance + sideFlaresChance
+        if (total <= 0) return FlareManeuver.DEFAULT
+
+        var roll = boss.getRandom().nextInt(total)
+        if (roll < defaultChance) return FlareManeuver.DEFAULT
+        roll -= defaultChance
+        if (roll < barrelRollChance) return FlareManeuver.BARREL_ROLL
+        roll -= barrelRollChance
+        if (roll < climbChance) return FlareManeuver.CLIMB
+        return FlareManeuver.SIDE_FLARES
     }
 
     private fun enterCrippled() {
@@ -1382,15 +1409,39 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     // ---------------------------------------------------------------------------------------------- evade
 
+    /** True once the evade's barrel roll has turned a full circle, or stopped progressing (terrain guard, timeout). */
+    private fun evadeRollFinished(): Boolean =
+        Math.abs(evadeRolled) >= FULL_ROLL_DEGREES || evadeRollTicks > ROLL_TIMEOUT
+
     private fun tickEvade() {
-        // Break 90 degrees off the missile's bearing, nose slightly down if there is height to spare.
         val bearing = FlightMath.horizontal(threats.threatBearing ?: currentHeading(), currentHeading())
         val sideways = Vec3(-bearing.z * evadeSide, 0.0, bearing.x * evadeSide)
         val spare = boss.y - guard.floorAhead(referenceY() + UNKNOWN_TERRAIN_OFFSET)
-        val pitch = if (spare > 120.0) -8.0 else 3.0
-        fly(FlightMath.tilted(sideways, pitch), 3.0f, maxBank = 75f)
+        when (evadeManeuver) {
+            FlareManeuver.DEFAULT -> {
+                fly(FlightMath.tilted(sideways, if (spare > 120.0) -8.0 else 3.0), 3.0f, maxBank = 75f)
+            }
 
-        if (stateTicks >= evadeDuration) {
+            FlareManeuver.BARREL_ROLL -> {
+                fly(FlightMath.tilted(sideways, if (spare > 120.0) -4.0 else 4.0), 3.0f, maxBank = 75f)
+                evadeRolled += Mth.wrapDegrees(boss.roll - evadeLastRoll) * evadeSide
+                evadeLastRoll = boss.roll
+                evadeRollTicks++
+                if (!evadeRollFinished()) flight.applyRoll(evadeSide)
+            }
+
+            FlareManeuver.CLIMB -> {
+                fly(FlightMath.tilted(currentHeading(), 38.0), 3.0f, maxBank = 35f)
+            }
+
+            FlareManeuver.SIDE_FLARES -> {
+                fly(FlightMath.tilted(sideways, if (spare > 120.0) 8.0 else 3.0), 3.0f, maxBank = 75f)
+            }
+        }
+
+        // A barrel roll is never cut short (that leaves the plane inverted): the break lasts until the turn is done.
+        val rollPending = evadeManeuver == FlareManeuver.BARREL_ROLL && !evadeRollFinished()
+        if (stateTicks >= evadeDuration && !rollPending) {
             val ticks = resumeTicks
             enter(resumeState, resume = true)
             stateTicks = ticks

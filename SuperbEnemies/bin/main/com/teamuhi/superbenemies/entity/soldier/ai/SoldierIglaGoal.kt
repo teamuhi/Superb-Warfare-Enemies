@@ -9,6 +9,7 @@ import com.teamuhi.superbenemies.config.SoldierConfig
 import com.teamuhi.superbenemies.entity.boss.common.BossAircraft
 import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedBosses
 import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedProjectiles
+import com.teamuhi.superbenemies.entity.dummy.ai.DummyAi
 import com.teamuhi.superbenemies.entity.soldier.DummySoldierEntity
 import net.minecraft.sounds.SoundEvent
 import net.minecraft.sounds.SoundSource
@@ -83,6 +84,9 @@ class SoldierIglaGoal(private val soldier: DummySoldierEntity) : Goal() {
     private var wobbleYaw = 0f
     private var wobblePitch = 0f
 
+    /** The idle scan skipped a boss because the shared raycast budget was spent (see [DummyAi.sightRays]). */
+    private var rayDeferred = false
+
     init {
         flags = EnumSet.of(Flag.MOVE, Flag.LOOK, Flag.JUMP)
     }
@@ -95,7 +99,10 @@ class SoldierIglaGoal(private val soldier: DummySoldierEntity) : Goal() {
         if (now < nextScanTick) return false
         nextScanTick = now + SCAN_INTERVAL
         if (soldier.wantsCover()) return false
+        rayDeferred = false
         candidate = scan()
+        // Other soldiers used this tick's raycasts: look again next tick instead of waiting a full scan interval.
+        if (candidate == null && rayDeferred) nextScanTick = now + 1
         return candidate != null
     }
 
@@ -274,7 +281,7 @@ class SoldierIglaGoal(private val soldier: DummySoldierEntity) : Goal() {
         var bestAngle = Double.MAX_VALUE
         var bestDistance = Double.MAX_VALUE
         for (entity in TrackedBosses.near(soldier.level(), soldier.position(), range)) {
-            if (!lockable(entity, range, minRange)) continue
+            if (!lockable(entity, range, minRange, budgeted = true)) continue
             val angle = angleTo(entity)
             val distance = soldier.distanceToSqr(entity)
             if (angle < bestAngle - ANGLE_EPSILON || (abs(angle - bestAngle) <= ANGLE_EPSILON && distance < bestDistance)) {
@@ -294,11 +301,17 @@ class SoldierIglaGoal(private val soldier: DummySoldierEntity) : Goal() {
     }
 
     /** [usable], within range, high enough above the ground, in line of sight and out of smoke (cheapest tests first). */
-    private fun lockable(boss: Entity, range: Double, minRange: Double): Boolean {
+    private fun lockable(boss: Entity, range: Double, minRange: Double, budgeted: Boolean = false): Boolean {
         if (!usable(boss)) return false
         val distance = soldier.distanceToSqr(boss)
         if (distance > range * range || distance < minRange * minRange) return false
-        return highEnough(boss) && clearLine(boss) && SeekTool.NOT_IN_SMOKE.test(boss)
+        if (!highEnough(boss)) return false
+        // The idle scan shares a per-tick raycast budget across all soldiers; an engaged soldier's checks never wait.
+        if (budgeted && !DummyAi.sightRays.tryTake(soldier.level())) {
+            rayDeferred = true
+            return false
+        }
+        return clearLine(boss) && SeekTool.NOT_IN_SMOKE.test(boss)
     }
 
     /** The Igla's `MinTargetHeight`: the boss is at least [MIN_TARGET_HEIGHT] blocks above the top blocking block under it. */

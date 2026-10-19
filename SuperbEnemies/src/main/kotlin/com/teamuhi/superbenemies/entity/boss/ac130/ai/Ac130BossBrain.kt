@@ -137,7 +137,11 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
 
         // Aim every tick; fire only while circling, flying in or breaking away (the taunt and the rearm never shoot).
         val mayFire = state == Ac130State.INGRESS || state == Ac130State.ORBIT || state == Ac130State.EVADE
-        gunnery.tick(target, targeting.aimVelocity, mayFire, firePlan())
+        gunnery.tick(
+            target, targeting.aimVelocity, mayFire, firePlan()
+        ) {
+            targeting.snapToAnotherTarget(level, radiusNow())
+        }
         threats.applyFlareInput()
 
         safetyNet(target)
