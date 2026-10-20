@@ -136,6 +136,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     /** Set when the current gun run is the bombing variant (cannon from afar, bombs when close; see [tickGunDive]). */
     private var bombComboPending = false
+    private var nukeRun = false
 
     // --- bombing variant of the cannon run ---
     /** The run may still drop its bombs: armed on entering GUN_DIVE, cleared by a release, a miss or the next attack. */
@@ -211,6 +212,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         ROCKET_BOMB_STALL(BossState.CLIMB_FOR_DIVE),
         ORBIT_BARRAGE(BossState.ORBIT_BARRAGE),
         BOMB_RUN(BossState.BOMB_RUN),
+        NUKE_RUN(BossState.BOMB_RUN),
         TAUNT(BossState.TAUNT)
     }
 
@@ -556,6 +558,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 bombPhase = BombPhase.SETUP
                 bombApproached = false
                 previousMiss = Double.MAX_VALUE
+                fire.selectBombVariant(nukeRun)
             }
 
             BossState.CLIMB_FOR_DIVE -> {
@@ -610,7 +613,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     /**
      * Weighted random attack choice, weighted by one `*Chance` config option per attack type: gun run, gun run with
-     * bombs, rocket run, homing missile orbit and bomb run (bombs only from phase 2). An attack type whose weapon is
+    * bombs, rocket run, homing missile orbit and bomb run. An attack type whose weapon is
      * disabled (or spent, with limited ammo) is not drawn. The two gun run variants are one [Attack.GUN_DIVE]; the
      * bombing variant drops its bombs on the target, and only when that release was missed is the run followed by a
      * separate bomb run on the same target. A cannon run may follow itself up to [MAX_GUN_STREAK] times, the others
@@ -637,18 +640,20 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         if (fallbackBomb) {
             bombComboPending = false
             gunStreak = 0
+            nukeRun = false
             lastAttack = Attack.BOMB_RUN
             enter(BossState.BOMB_RUN)
             return
         }
         // One configured chance per attack type. A type is only in the draw when every weapon it uses is enabled (read
-        // live, so a weapon can be switched off between attacks) and its chance is above 0. Bombs wait for phase 2.
+        // live, so a weapon can be switched off between attacks) and its chance is above 0.
         val cannon = BossConfig.CANNON_ENABLED.get()
         val bombs = BossConfig.BOMBS_ENABLED.get()
         var gunPlain = if (cannon) BossConfig.GUN_RUN_CHANCE.get() else 0
         var gunBombing = if (cannon && bombs) BossConfig.GUN_RUN_BOMB_CHANCE.get() else 0
         var rocketRun = if (BossConfig.ROCKETS_ENABLED.get()) BossConfig.ROCKET_RUN_CHANCE.get() else 0
-        var bombRun = if (bombs && phase != Phase.P1) BossConfig.BOMB_RUN_CHANCE.get() else 0
+        var bombRun = if (bombs) BossConfig.BOMB_RUN_CHANCE.get() else 0
+        var nukeRunChance = if (bombs && BossConfig.NUKE_ENABLED.get()) BossConfig.NUKE_RUN_CHANCE.get() else 0
         val missiles = BossConfig.MISSILES_ENABLED.get()
         val rockets = BossConfig.ROCKETS_ENABLED.get()
         var missileOrbit = if (missiles) BossConfig.MISSILE_ORBIT_CHANCE.get() else 0
@@ -658,14 +663,15 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         var rocketBomb = if (rockets && bombs) BossConfig.ROCKET_BOMB_STALL_CHANCE.get() else 0
         // Finite ammo: an attack whose weapon is spent is skipped; with every allowed attack spent the boss goes to rearm.
         if (BossConfig.LIMITED_AMMO.get()) {
-            val hadWeapons = gunPlain + gunBombing + rocketRun + bombRun + missileOrbit + rocketMissile + doubleGun +
+                val hadWeapons = gunPlain + gunBombing + rocketRun + bombRun + nukeRunChance + missileOrbit + rocketMissile + doubleGun +
                     cannonRocket + rocketBomb > 0
             if (!fire.hasAmmo(FireControl.CANNON)) { gunPlain = 0; gunBombing = 0; doubleGun = 0; cannonRocket = 0 }
             if (!fire.hasAmmo(FireControl.BOMB)) { gunBombing = 0; bombRun = 0; rocketBomb = 0 }
+            if (!fire.hasAmmo(FireControl.NUKE)) nukeRunChance = 0
             if (!fire.hasAmmo(FireControl.ROCKET)) { rocketRun = 0; rocketMissile = 0; cannonRocket = 0; rocketBomb = 0 }
             if (!fire.hasAmmo(FireControl.MISSILE)) { missileOrbit = 0; rocketMissile = 0 }
             if (hadWeapons && gunPlain + gunBombing + rocketRun + bombRun + missileOrbit + rocketMissile + doubleGun +
-                cannonRocket + rocketBomb == 0
+                cannonRocket + rocketBomb + nukeRunChance == 0
             ) {
                 enter(BossState.RESUPPLY)
                 return
@@ -680,6 +686,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         weights[Attack.CANNON_ROCKET_STALL] = cannonRocket
         weights[Attack.ROCKET_BOMB_STALL] = rocketBomb
         weights[Attack.BOMB_RUN] = bombRun
+        weights[Attack.NUKE_RUN] = nukeRunChance
         weights[Attack.ORBIT_BARRAGE] = missileOrbit
         weights.values.removeIf { it <= 0 }
         // A rare, harmless show-off pass; it never replaces a real attack when the others are all switched off.
@@ -718,7 +725,12 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         stallPass = false
         gunStreak = if (attack == Attack.GUN_DIVE) gunStreak + 1 else 0
         // Each gun run picks its variant up front; the plain one (and every other attack) clears the flag.
-        bombComboPending = attack == Attack.GUN_DIVE && boss.getRandom().nextInt(gunPlain + gunBombing) < gunBombing
+        val gunWeight = gunPlain + gunBombing
+        bombComboPending = attack == Attack.GUN_DIVE && gunWeight > 0 &&
+            boss.getRandom().nextInt(gunWeight) < gunBombing
+        nukeRun = attack == Attack.NUKE_RUN
+        fire.selectBombVariant(false)
+        if (nukeRun) fire.selectBombVariant(true)
         lastAttack = attack
         // Picking the state we are already in (only when nothing else is allowed) still restarts it.
         if (state == attack.entryState) state = BossState.EXTEND
@@ -864,8 +876,14 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
         // Far from the release point the flat-ground estimate is enough; SBW's terrain-sampling prediction (hundreds of
         // heightmap reads per call) only runs once the plane is close.
+        // A Mk-84 should still release over roofs and enclosed targets. Terrain sampling treats a rooftop as the
+        // impact surface and can keep the precise pipper outside the narrow Mk-84 release window indefinitely.
         val flat = fire.estimateBombImpact(target.y)
-        val impact = if (FlightMath.horizontalDistance(flat, predicted) > COARSE_MISS_RANGE) flat else fire.predictBombImpact()
+        val impact = if (nukeRun || FlightMath.horizontalDistance(flat, predicted) > COARSE_MISS_RANGE) {
+            flat
+        } else {
+            fire.predictBombImpact()
+        }
 
         // The stick falls along the flight path, one bomb per STICK_INTERVAL ticks. Release the first bomb one spacing
         // short of the target so the middle bomb lands on it and the others straddle it.
@@ -885,6 +903,9 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
         when {
             miss < RELEASE_RADIUS || pastMinimum -> releaseStick(miss, predicted, impact)
+            // The Mk-84 blast is large and its flat-ground pipper can jump over a roof/building edge. Keep the
+            // single-bomb attack armed through the overflight and retry instead of losing the whole pass.
+            nukeRun && bombApproached && ahead < -spacing - 20.0 -> releaseStick(miss, predicted, impact)
             bombApproached && ahead < -spacing - 20.0 -> enter(BossState.EXTEND) // overflown: the pass is lost
             stateTicks > BOMB_SETUP_TIMEOUT + BOMB_RUN_TIMEOUT -> enter(BossState.EXTEND) // never lined up
         }
@@ -892,6 +913,13 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     private fun releaseStick(predictedMiss: Double, predictedTarget: Vec3, impact: Vec3) {
         if (!BossConfig.BOMBS_ENABLED.get()) { // switched off mid-run: abandon the pass
+            enter(BossState.EXTEND)
+            return
+        }
+        if (nukeRun) {
+            if (!fire.dropNuke()) return // rack busy: try again next tick while the release window holds
+            nukeRun = false
+            fire.selectBombVariant(false)
             enter(BossState.EXTEND)
             return
         }
@@ -1494,7 +1522,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 flight.pullUp(currentHeading(), (1.0 - clearance / buffer).coerceIn(0.0, 1.0))
                 // The SETUP leg only opens the distance while climbing back to run altitude (always the case right after
                 // a gun dive), so low clearance there must not cancel the pass; only the actual run is abandoned.
-                if (state == BossState.BOMB_RUN && bombPhase != BombPhase.SETUP) enter(BossState.EXTEND)
+                if (state == BossState.BOMB_RUN && bombPhase != BombPhase.SETUP && !nukeRun) enter(BossState.EXTEND)
                 // The climb itself may start low (it is what gets the plane up); the swing must not go on near the ground.
                 if (state == BossState.STALL_TURN && stallPhase == StallPhase.SWING) enter(BossState.EXTEND)
             }

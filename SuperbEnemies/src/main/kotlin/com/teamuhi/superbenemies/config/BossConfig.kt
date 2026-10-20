@@ -34,6 +34,8 @@ object BossConfig {
     val GUN_RUN_BOMB_CHANCE: ForgeConfigSpec.IntValue
     val ROCKET_RUN_CHANCE: ForgeConfigSpec.IntValue
     val BOMB_RUN_CHANCE: ForgeConfigSpec.IntValue
+    val NUKE_ENABLED: ForgeConfigSpec.BooleanValue
+    val NUKE_RUN_CHANCE: ForgeConfigSpec.IntValue
     val MISSILE_ORBIT_CHANCE: ForgeConfigSpec.IntValue
     val ROCKET_MISSILE_RUN_CHANCE: ForgeConfigSpec.IntValue
     val DOUBLE_GUN_RUN_CHANCE: ForgeConfigSpec.IntValue
@@ -44,6 +46,7 @@ object BossConfig {
     val CANNON_ROUNDS: ForgeConfigSpec.IntValue
     val ROCKET_COUNT: ForgeConfigSpec.IntValue
     val BOMB_COUNT: ForgeConfigSpec.IntValue
+    val NUKE_COUNT: ForgeConfigSpec.IntValue
     val MISSILE_COUNT: ForgeConfigSpec.IntValue
     val FLARE_COUNT: ForgeConfigSpec.IntValue
     val RESUPPLY_SECONDS: ForgeConfigSpec.IntValue
@@ -155,8 +158,14 @@ object BossConfig {
             .comment("Weight (percent) of 70mm rocket runs. Needs rocketsEnabled.")
             .defineInRange("rocketRunChance", 20, 0, 100)
         BOMB_RUN_CHANCE = b
-            .comment("Weight (percent) of straight Mk 82 bomb runs (second phase on). Needs bombsEnabled.")
+            .comment("Weight (percent) of straight Mk 82 bomb runs. Needs bombsEnabled.")
             .defineInRange("bombRunChance", 20, 0, 100)
+        NUKE_ENABLED = b
+            .comment("Whether the boss may use the single Mk 84 bomb variant. Needs bombsEnabled.")
+            .define("nukeEnabled", true)
+        NUKE_RUN_CHANCE = b
+            .comment("Weight (percent) of single-bomb Mk 84 nuke runs. Needs nukeEnabled and bombsEnabled.")
+            .defineInRange("nukeRunChance", 5, 0, 100)
         MISSILE_ORBIT_CHANCE = b
             .comment("Weight (percent) of AGM-65 missile orbits. Needs missilesEnabled.")
             .defineInRange("missileOrbitChance", 10, 0, 100)
@@ -187,6 +196,9 @@ object BossConfig {
         BOMB_COUNT = b
             .comment("Mk 82 bombs per load (a bomb run drops 3).")
             .defineInRange("bombs", 9, 1, 1_000)
+        NUKE_COUNT = b
+            .comment("Mk 84 bombs per load (a nuke run drops 1).")
+            .defineInRange("nukes", 1, 1, 100)
         MISSILE_COUNT = b
             .comment("AGM-65 missiles per load.")
             .defineInRange("missiles", 8, 1, 1_000)
@@ -253,9 +265,9 @@ object BossConfig {
             MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, TARGET_PRIORITY, MOB_SCAN_RANGE, RANDOM_TARGETING, ORBIT_RADIUS,
             CANNON_DAMAGE_MULT, ROCKET_DAMAGE_MULT, BOMB_DAMAGE_MULT, MISSILE_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, ROCKETS_ENABLED, BOMBS_ENABLED, MISSILES_ENABLED,
-            GUN_RUN_CHANCE, GUN_RUN_BOMB_CHANCE, ROCKET_RUN_CHANCE, BOMB_RUN_CHANCE, MISSILE_ORBIT_CHANCE,
+            GUN_RUN_CHANCE, GUN_RUN_BOMB_CHANCE, ROCKET_RUN_CHANCE, BOMB_RUN_CHANCE, NUKE_ENABLED, NUKE_RUN_CHANCE, MISSILE_ORBIT_CHANCE,
             ROCKET_MISSILE_RUN_CHANCE, DOUBLE_GUN_RUN_CHANCE, CANNON_ROCKET_STALL_CHANCE, ROCKET_BOMB_STALL_CHANCE,
-            LIMITED_AMMO, CANNON_ROUNDS, ROCKET_COUNT, BOMB_COUNT, MISSILE_COUNT, FLARE_COUNT, RESUPPLY_SECONDS,
+            LIMITED_AMMO, CANNON_ROUNDS, ROCKET_COUNT, BOMB_COUNT, NUKE_COUNT, MISSILE_COUNT, FLARE_COUNT, RESUPPLY_SECONDS,
             DEFENSIVE_FLARES, FLARE_MISS_CHANCE, DEFAULT_FLARE_CHANCE, BARREL_ROLL_FLARE_CHANCE, CLIMB_FLARE_CHANCE,
             SIDE_FLARES_CHANCE, TAUNT_ENABLED, IGNORE_BLOCK_COLLISIONS, BOSS_BAR_RANGE, XP_REWARD, DEBUG_LOGGING
         )

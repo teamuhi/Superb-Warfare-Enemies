@@ -25,7 +25,8 @@ data class ConfigPage(
     val title: Component,
     val spec: ForgeConfigSpec,
     val values: List<ForgeConfigSpec.ConfigValue<*>>,
-    val requires: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap()
+    val requires: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap(),
+    val disabledWhenEnabled: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap()
 )
 
 /**
@@ -244,8 +245,12 @@ class BossConfigScreen(private val parent: Screen, private val pages: List<Confi
 
     /** False while the toggle this option depends on ([ConfigPage.requires]) is switched off in the drafts. */
     private fun isAvailable(value: ForgeConfigSpec.ConfigValue<*>): Boolean {
-        val toggle = pageOf.getValue(value).requires[value] ?: return true
-        return drafts[toggle]?.toBooleanStrictOrNull() ?: toggle.get()
+        val page = pageOf.getValue(value)
+        val requiredToggle = page.requires[value]
+        if (requiredToggle != null && !(drafts[requiredToggle]?.toBooleanStrictOrNull() ?: requiredToggle.get())) return false
+        val disabledToggle = page.disabledWhenEnabled[value]
+        if (disabledToggle != null && (drafts[disabledToggle]?.toBooleanStrictOrNull() ?: disabledToggle.get())) return false
+        return true
     }
 
     private fun unsavedCount(): Int = values.count { isDirty(it) }

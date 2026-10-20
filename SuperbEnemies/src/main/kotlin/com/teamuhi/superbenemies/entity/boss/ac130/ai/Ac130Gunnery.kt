@@ -8,6 +8,7 @@ import com.teamuhi.superbenemies.entity.boss.common.ai.FlightMath
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
+import net.minecraft.world.level.ClipContext
 import net.minecraft.world.phys.Vec3
 import java.util.EnumMap
 import java.util.UUID
@@ -196,6 +197,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
                 val origin = boss.getShootPos(gunner, 1f)
                 var point = leadPoint(gun, origin, resolved!!.center, resolved.velocity)
                 if (gun == Ac130Gun.M61) point = point.add(scatter.scale(scatterScale))
+                selectAmmo(gun, origin, point)
                 val wanted = point.subtract(origin)
                 if (wanted.lengthSqr() > 1.0e-6 && finite(wanted)) {
                     st.hasAim = true
@@ -246,6 +248,15 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         val entity = order.entity ?: return Resolved(order.offset, Vec3.ZERO)
         if (!entity.isAlive || entity.isRemoved) return null
         return Resolved(entity.boundingBox.center.add(order.offset), tracks[entity.id]?.velocity ?: Vec3.ZERO)
+    }
+
+    /** Uses the piercing consumer only when a solid block is between this gun and its current aim point. */
+    private fun selectAmmo(gun: Ac130Gun, origin: Vec3, point: Vec3) {
+        val ammoType = if (boss.level().clip(
+                ClipContext(origin, point, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, boss)
+            ).type == net.minecraft.world.phys.HitResult.Type.BLOCK
+        ) AP_AMMO_TYPE else STANDARD_AMMO_TYPE
+        boss.getGunData(gun.seat)?.changeAmmoConsumer(ammoType, boss)
     }
 
     /** Enabled guns with ammo and a gunner in the seat, in seat order. */
@@ -546,6 +557,8 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         const val FIRE_ANGLE = 3.0
         const val MAX_RANGE = 450.0
         const val MAX_LEAD_TICKS = 120.0
+        const val STANDARD_AMMO_TYPE = 0
+        const val AP_AMMO_TYPE = 1
 
         // Barrage: fire while the clamped line still lands this close to the target
         const val M61_BARRAGE_RADIUS = 14.0

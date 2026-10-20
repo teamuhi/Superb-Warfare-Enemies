@@ -3,6 +3,7 @@ package com.teamuhi.superbenemies.entity.boss.a10.ai
 import com.atsuishio.superbwarfare.data.gun.GunProp
 import com.atsuishio.superbwarfare.data.gun.ShootParameters
 import com.atsuishio.superbwarfare.tools.ProjectileCalculator
+import com.teamuhi.superbenemies.SuperbEnemies
 import com.teamuhi.superbenemies.config.BossConfig
 import com.teamuhi.superbenemies.entity.boss.a10.A10WarthogBossEntity
 import net.minecraft.nbt.CompoundTag
@@ -261,8 +262,23 @@ class FireControl(private val boss: A10WarthogBossEntity) {
      * Needs the pilot seated: SBW scales the bomb speed by the shooter's vehicle and refuses it otherwise.
      */
     fun dropBomb(): Boolean {
+        selectBombVariant(false)
         if (!pilotSeated() || !canShoot(BOMB)) return false
         return shootNow(BOMB, null, null, null)
+    }
+
+    /** Releases one selected Mk 84 bomb. The brain selects the variant before solving the release point. */
+    fun dropNuke(): Boolean {
+        if (!pilotSeated() || ammoLeft(NUKE) <= 0) return false
+        return shootNow(BOMB, null, null, null, NUKE, nuke = true)
+    }
+
+    /** Matches the player's N-key bomb switch: index 0 is Mk 82 and index 1 is Mk 84. */
+    fun selectBombVariant(nuke: Boolean) {
+        boss.modifyGunData(BOMB) { data ->
+            data.changeAmmoConsumer(if (nuke) 1 else 0, boss)
+            data.reloadAmmo(boss.ammoSupplier)
+        }
     }
 
     /**
@@ -311,6 +327,7 @@ class FireControl(private val boss: A10WarthogBossEntity) {
         CANNON -> BossConfig.CANNON_ROUNDS.get()
         ROCKET -> BossConfig.ROCKET_COUNT.get()
         BOMB -> BossConfig.BOMB_COUNT.get()
+        NUKE -> BossConfig.NUKE_COUNT.get()
         MISSILE -> BossConfig.MISSILE_COUNT.get()
         else -> Int.MAX_VALUE
     }
@@ -338,13 +355,24 @@ class FireControl(private val boss: A10WarthogBossEntity) {
      * Fires [weapon] immediately, along [direction] or, when null, the weapon's own SBW shoot vector. This repeats the
      * steps of `VehicleEntity.vehicleShoot` without its end-of-tick queue, so custom directions are possible.
      */
-    private fun shootNow(weapon: String, direction: Vec3?, uuid: UUID?, targetPos: Vec3?): Boolean {
+    private fun shootNow(
+        weapon: String,
+        direction: Vec3?,
+        uuid: UUID?,
+        targetPos: Vec3?,
+        ammoKey: String = weapon,
+        nuke: Boolean = false
+    ): Boolean {
         val level = boss.level() as? ServerLevel ?: return false
         val gunData = boss.getGunData(weapon) ?: return false
         val pilot = boss.pilot
         var shotDirection: Vec3? = null
 
         boss.modifyGunData(weapon) { data ->
+            if (nuke) {
+                data.changeAmmoConsumer(1, boss)
+                data.reloadAmmo(boss.ammoSupplier)
+            }
             if (!data.canShoot(boss.ammoSupplier)) return@modifyGunData
             val dir = (direction ?: boss.getShootVec(weapon, 1f)).normalize()
             data.shoot(
@@ -358,10 +386,18 @@ class FireControl(private val boss: A10WarthogBossEntity) {
             shotDirection = dir
         }
 
-        val fired = shotDirection ?: return false
+        val fired = shotDirection ?: run {
+            if (nuke && BossConfig.DEBUG_LOGGING.get()) {
+                SuperbEnemies.LOGGER.warn(
+                    "[A10 boss] Mk 84 release rejected: selected ammo {}, magazine {}, available ammo {}",
+                    gunData.selectedAmmoType.get(), gunData.ammo.get(), gunData.currentAvailableAmmo(boss.ammoSupplier)
+                )
+            }
+            return false
+        }
         boss.afterShoot(gunData, fired)
         boss.playShootSound3p(pilot, weapon)
-        consumeAmmo(weapon)
+        consumeAmmo(ammoKey)
         return true
     }
 
@@ -387,6 +423,7 @@ class FireControl(private val boss: A10WarthogBossEntity) {
         const val CANNON = "Cannon"
         const val ROCKET = "Rocket"
         const val BOMB = "Bomb"
+        const val NUKE = "Nuke"
         const val MISSILE = "Missile"
 
         private const val TAG_AMMO = "Ammo"

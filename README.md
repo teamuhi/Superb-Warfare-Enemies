@@ -33,6 +33,7 @@ Enemy and boss addons for [Superb Warfare](https://github.com/atsuishio/SuperbWa
 - Fires the 25mm cannon, 40mm Bofors and 105mm howitzer independently.
 - Supports normal, split-fire and focus-fire patterns.
 - Can attack players, mobs or other aircraft, including targets under cover.
+- Automatically switches to piercing rounds when a block is between a gun and its target.
 - Supports missile evasion, taunt flares, finite ammunition and resupply.
 
 ## Test Entities
@@ -76,9 +77,10 @@ All options are live unless stated otherwise. Config files are available in `con
 <tr><td><code>orbitRadius</code></td><td>90</td><td>Orbit distance.</td></tr>
 <tr><td><code>*DamageMultiplier</code></td><td>1.0</td><td>Weapon damage.</td></tr>
 <tr><td><code>*Enabled</code></td><td>true</td><td>Weapon availability.</td></tr>
-<tr><td><code>*Chance</code></td><td>varies</td><td>Attack and flare weights.</td></tr>
+<tr><td><code>*Chance</code></td><td>varies</td><td>Attack and flare weights, including the Mk 84 nuke run.</td></tr>
 <tr><td><code>limitedAmmo</code></td><td>false</td><td>Finite ammunition.</td></tr>
-<tr><td><code>cannonRounds</code>, <code>rockets</code>, <code>bombs</code>, <code>missiles</code></td><td>600, 56, 9, 8</td><td>Weapon loads.</td></tr>
+<tr><td><code>cannonRounds</code>, <code>rockets</code>, <code>bombs</code>, <code>nukes</code>, <code>missiles</code></td><td>600, 56, 9, 1, 8</td><td>Weapon loads.</td></tr>
+<tr><td><code>nukeEnabled</code>, <code>nukeRunChance</code></td><td>true, 5</td><td>Single Mk 84 nuke attack availability and weight.</td></tr>
 <tr><td><code>flares</code></td><td>varies</td><td>Flare load.</td></tr>
 <tr><td><code>resupplySeconds</code></td><td>40</td><td>Resupply delay.</td></tr>
 <tr><td><code>blockDamage</code></td><td>true</td><td>Explosion block damage.</td></tr>

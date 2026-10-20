@@ -60,6 +60,7 @@ object ClientSetup {
                                 BossConfig.GUN_RUN_BOMB_CHANCE to BossConfig.CANNON_ENABLED,
                                 BossConfig.ROCKET_RUN_CHANCE to BossConfig.ROCKETS_ENABLED,
                                 BossConfig.BOMB_RUN_CHANCE to BossConfig.BOMBS_ENABLED,
+                                BossConfig.NUKE_RUN_CHANCE to BossConfig.NUKE_ENABLED,
                                 BossConfig.MISSILE_ORBIT_CHANCE to BossConfig.MISSILES_ENABLED,
                                 BossConfig.ROCKET_MISSILE_RUN_CHANCE to BossConfig.ROCKETS_ENABLED,
                                 BossConfig.DOUBLE_GUN_RUN_CHANCE to BossConfig.CANNON_ENABLED,
@@ -67,6 +68,9 @@ object ClientSetup {
                                 BossConfig.ROCKET_BOMB_STALL_CHANCE to BossConfig.ROCKETS_ENABLED,
                                 BossConfig.FLARE_COUNT to BossConfig.LIMITED_AMMO,
                                 BossConfig.RESUPPLY_SECONDS to BossConfig.LIMITED_AMMO
+                            ),
+                            disabledWhenEnabled = mapOf(
+                                BossConfig.AGGRO_RANGE to BossConfig.GLOBAL_AGGRO
                             )
                         ),
                         ConfigPage(
@@ -86,6 +90,9 @@ object ClientSetup {
                                 Ac130Config.FOCUS_FIRE_CHANCE to Ac130Config.CANNON_ENABLED,
                                 Ac130Config.FLARE_COUNT to Ac130Config.LIMITED_AMMO,
                                 Ac130Config.RESUPPLY_SECONDS to Ac130Config.LIMITED_AMMO
+                            ),
+                            disabledWhenEnabled = mapOf(
+                                Ac130Config.AGGRO_RANGE to Ac130Config.GLOBAL_AGGRO
                             )
                         ),
                         ConfigPage(tab("dummy"), DummyConfig.SPEC, DummyConfig.ALL),
