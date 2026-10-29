@@ -123,17 +123,21 @@ class FireControl(private val boss: A10WarthogBossEntity) {
      * Launches an AGM-65 locked on [target] (its root vehicle when it is riding one). The missile is launched towards
      * the target when that lies in the forward hemisphere, otherwise along the airframe boresight; it homes on the
      * lock UUID either way. Needs the pilot (SBW only applies the lock when there is a shooter).
+     *
+     * With [guided] false ([target] is the ghost of a hidden target, a stand-in that is not in the world) no lock UUID
+     * is passed: SBW then finds no entity to lock and flies the missile unguided to the aim point instead (guide type 1,
+     * the point's position as its target), i.e. to the last known position.
      */
-    fun fireMissile(target: Entity): Boolean {
+    fun fireMissile(target: Entity, guided: Boolean = true): Boolean {
         val now = boss.tickCount
         if (now < missileNextTick) return false
         if (!pilotSeated() || !canShoot(MISSILE)) return false
 
         val lock = target.rootVehicle
-        val aim = lock.boundingBox.center
+        val aim = if (guided) lock.boundingBox.center else target.position()
         val toTarget = aim.subtract(boss.getShootPos(MISSILE, 1f))
         val forwardOk = toTarget.lengthSqr() > 1.0 && toTarget.normalize().dot(boss.getViewVector(1f)) > 0.0
-        val fired = shootNow(MISSILE, if (forwardOk) toTarget else null, lock.uuid, aim)
+        val fired = shootNow(MISSILE, if (forwardOk) toTarget else null, if (guided) lock.uuid else null, aim)
         if (fired) missileNextTick = now + scaled(between(40, 60))
         return fired
     }
@@ -294,7 +298,10 @@ class FireControl(private val boss: A10WarthogBossEntity) {
 
     // ------------------------------------------------------------------------------------------------ helpers
 
-    /** Per-tick displacement of [entity] (reliable on the server, unlike `deltaMovement` for players). */
+    /**
+     * Per-tick displacement of [entity] (reliable on the server, unlike `deltaMovement` for players). Zero for the ghost
+     * of a hidden target: `TargetSight` keeps its previous position equal to its position.
+     */
     fun velocityOf(entity: Entity): Vec3 {
         val v = Vec3(entity.x - entity.xo, entity.y - entity.yo, entity.z - entity.zo)
         return if (entity.onGround()) Vec3(v.x, 0.0, v.z) else v

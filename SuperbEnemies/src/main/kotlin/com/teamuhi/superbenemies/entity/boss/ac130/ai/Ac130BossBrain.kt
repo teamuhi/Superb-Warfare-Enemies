@@ -644,7 +644,22 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         val clearance = boss.y - floor
         val buffer = GUARD_BASE_BUFFER + descent
 
-        if (clearance < buffer) flight.pullUp(currentHeading(), (1.0 - clearance / buffer).coerceIn(0.0, 1.0))
+        if (clearance < buffer) {
+            val urgency = (1.0 - clearance / buffer).coerceIn(0.0, 1.0)
+            val detour = target?.let {
+                val offset = FlightMath.horizontal(
+                    Vec3(boss.x - it.x, 0.0, boss.z - it.z),
+                    currentHeading()
+                )
+                // Keep the pylon turn moving sideways around a tall structure instead of climbing straight into it.
+                Vec3(offset.z, 0.0, -offset.x)
+            } ?: currentHeading()
+            flight.steer(
+                FlightMath.tilted(detour, 18.0 + 22.0 * urgency),
+                (2.6 + 0.4 * urgency).toFloat(),
+                maxBank = MAX_BANK
+            )
+        }
     }
 
     private companion object {
@@ -730,7 +745,8 @@ class Ac130BossBrain(private val boss: Ac130BossEntity) {
         const val RESUPPLY_CLEARANCE_HALF_WIDTH = 16.0
 
         // Terrain guard
-        const val UNKNOWN_TERRAIN_OFFSET = 40.0
+        /** Unloaded chunks are beyond the active fight area; do not treat them as phantom skyscrapers. */
+        const val UNKNOWN_TERRAIN_OFFSET = -10.0
         const val GUARD_BASE_BUFFER = 12.0
         const val GUARD_DESCENT_FACTOR = 14.0
     }

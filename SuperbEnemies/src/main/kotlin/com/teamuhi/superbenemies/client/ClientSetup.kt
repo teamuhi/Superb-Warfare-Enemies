@@ -71,7 +71,8 @@ object ClientSetup {
                             ),
                             disabledWhenEnabled = mapOf(
                                 BossConfig.AGGRO_RANGE to BossConfig.GLOBAL_AGGRO
-                            )
+                            ),
+                            sliders = BossConfig.SLIDERS
                         ),
                         ConfigPage(
                             tab("ac130"), Ac130Config.SPEC, Ac130Config.ALL,
@@ -93,7 +94,8 @@ object ClientSetup {
                             ),
                             disabledWhenEnabled = mapOf(
                                 Ac130Config.AGGRO_RANGE to Ac130Config.GLOBAL_AGGRO
-                            )
+                            ),
+                            sliders = Ac130Config.SLIDERS
                         ),
                         ConfigPage(tab("dummy"), DummyConfig.SPEC, DummyConfig.ALL),
                         ConfigPage(

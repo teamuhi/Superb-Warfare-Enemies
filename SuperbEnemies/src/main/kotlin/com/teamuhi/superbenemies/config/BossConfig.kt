@@ -15,7 +15,14 @@ object BossConfig {
     val CRUISE_HEIGHT: ForgeConfigSpec.IntValue
     val AGGRO_RANGE: ForgeConfigSpec.IntValue
     val GLOBAL_AGGRO: ForgeConfigSpec.BooleanValue
-    val TARGET_PRIORITY: ForgeConfigSpec.EnumValue<TargetPriority>
+    val TARGETING_METHOD: ForgeConfigSpec.EnumValue<TargetingMethod>
+    val PLAYER_WEIGHT: ForgeConfigSpec.IntValue
+    val MOB_WEIGHT: ForgeConfigSpec.IntValue
+    val HOSTILE_MOB_WEIGHT: ForgeConfigSpec.IntValue
+    val PLANE_WEIGHT: ForgeConfigSpec.IntValue
+
+    /** The four weight options as one object, for classifying a target by [TargetCategory]. */
+    val WEIGHTS: TargetWeights
     val MOB_SCAN_RANGE: ForgeConfigSpec.IntValue
     val RANDOM_TARGETING: ForgeConfigSpec.BooleanValue
     val ORBIT_RADIUS: ForgeConfigSpec.IntValue
@@ -67,6 +74,9 @@ object BossConfig {
     /** Every option in file order (grouped by section); the in-game config screen is built from this. */
     val ALL: List<ForgeConfigSpec.ConfigValue<*>>
 
+    /** Options the config screen draws as sliders, with their range: the four target weights. */
+    val SLIDERS: Map<ForgeConfigSpec.ConfigValue<*>, IntRange>
+
     init {
         val b = ForgeConfigSpec.Builder()
 
@@ -88,21 +98,51 @@ object BossConfig {
             .comment("Hunt the nearest player anywhere in the dimension and show the boss bar to everyone.")
             .define("globalAggro", true)
 
-        TARGET_PRIORITY = b
+        TARGETING_METHOD = b
             .comment(
-                "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS, MOBS_ONLY (never players) or OTHER_PLANES",
-                "(experimental: manned airplanes/helicopters and other bosses only).",
-                "Mobs are only engaged under open sky. Player dummies follow bossesTargetDummy and count as players."
+                "How well the boss keeps track of its target. STATIC: it always knows exactly where the target is.",
+                "DYNAMIC: a target with a cover block above it is hidden and the boss attacks the last position it saw it at;",
+                "once the target is under open sky again it is tracked live. Blocks in the superbenemies:boss_see_through",
+                "block tag (glass, leaves, fences, carpets...) and blocks without collision (water, plants) are not cover.",
+                "With DYNAMIC the boss prefers any exposed target and only keeps attacking a hidden one when there is none."
             )
-            .defineEnum("targetPriority", TargetPriority.PLAYERS)
+            .defineEnum("targetingMethod", TargetingMethod.DYNAMIC)
+
+        PLAYER_WEIGHT = b
+            .comment(
+                "How much the boss wants to attack players (and player dummies that bosses target), from 0 to 5. 0 = never.",
+                "With randomTargeting the weight is the relative chance of being drawn; otherwise a weight-5 target",
+                "counts as 5x closer than a weight-1 target."
+            )
+            .defineInRange("playerWeight", 5, 0, MAX_TARGET_WEIGHT)
+
+        MOB_WEIGHT = b
+            .comment(
+                "Same for non-hostile mobs: animals, villagers, golems. 0 = never.",
+                "Mobs, hostile or not, are only engaged under open sky. Player dummies follow bossesTargetDummy and count as players."
+            )
+            .defineInRange("mobWeight", 0, 0, MAX_TARGET_WEIGHT)
+
+        HOSTILE_MOB_WEIGHT = b
+            .comment("Same for hostile mobs (monsters). 0 = never.")
+            .defineInRange("hostileMobWeight", 0, 0, MAX_TARGET_WEIGHT)
+
+        PLANE_WEIGHT = b
+            .comment(
+                "EXPERIMENTAL. Same for manned airplanes and helicopters and for other bosses. 0 = never.",
+                "The normal attack patterns are reused, so fast movers are often missed."
+            )
+            .defineInRange("planeWeight", 0, 0, MAX_TARGET_WEIGHT)
+
+        WEIGHTS = TargetWeights(PLAYER_WEIGHT, MOB_WEIGHT, HOSTILE_MOB_WEIGHT, PLANE_WEIGHT)
 
         MOB_SCAN_RANGE = b
-            .comment("Range (blocks) in which mobs are considered as targets, whatever globalAggro says. Only used with PLAYERS_AND_MOBS / MOBS_ONLY.")
+            .comment("Range (blocks) in which mobs are considered as targets, whatever globalAggro says. Only used when mobWeight or hostileMobWeight is above 0.")
             .defineInRange("mobScanRange", 128, 32, 256)
 
         RANDOM_TARGETING = b
             .comment(
-                "Pick a random target at the start of every attack (players first, mobs only when no player qualifies).",
+                "Pick a random target at the start of every attack, drawn by the target weights (playerWeight, mobWeight...).",
                 "Never swapped mid-dive or bomb run."
             )
             .define("randomTargeting", true)
@@ -261,8 +301,11 @@ object BossConfig {
         b.pop()
         SPEC = b.build()
 
+        SLIDERS = listOf(PLAYER_WEIGHT, MOB_WEIGHT, HOSTILE_MOB_WEIGHT, PLANE_WEIGHT).associateWith { 0..MAX_TARGET_WEIGHT }
+
         ALL = listOf(
-            MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, TARGET_PRIORITY, MOB_SCAN_RANGE, RANDOM_TARGETING, ORBIT_RADIUS,
+            MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, TARGETING_METHOD, PLAYER_WEIGHT, MOB_WEIGHT, HOSTILE_MOB_WEIGHT, PLANE_WEIGHT,
+            MOB_SCAN_RANGE, RANDOM_TARGETING, ORBIT_RADIUS,
             CANNON_DAMAGE_MULT, ROCKET_DAMAGE_MULT, BOMB_DAMAGE_MULT, MISSILE_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, ROCKETS_ENABLED, BOMBS_ENABLED, MISSILES_ENABLED,
             GUN_RUN_CHANCE, GUN_RUN_BOMB_CHANCE, ROCKET_RUN_CHANCE, BOMB_RUN_CHANCE, NUKE_ENABLED, NUKE_RUN_CHANCE, MISSILE_ORBIT_CHANCE,

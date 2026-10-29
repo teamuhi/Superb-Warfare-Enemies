@@ -476,7 +476,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         }
     }
 
-    /** Bursts of 45-90 ticks separated by 2-4 tick pauses (final phase: x0.6), one round per `1200/rpm` ticks. */
+    /** Bursts of 45-90 ticks, never longer than 10 seconds, separated by 2-4 tick pauses. */
     private fun fireCannon(
         gun: Ac130Gun,
         gunner: BossCrewEntity,
@@ -488,7 +488,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         st.lastCall = now
         if (now < st.pauseUntil) return
         if (st.burstEnd == 0) {
-            st.burstEnd = now + between(CANNON_BURST_MIN, CANNON_BURST_MAX)
+            st.burstEnd = now + min(MAX_CANNON_BURST_TICKS, between(CANNON_BURST_MIN, CANNON_BURST_MAX))
             if (boss.getRandom().nextInt(100) < Ac130Config.LONG_BURST_TARGET_SWITCH_CHANCE.get()) {
                 onLongBurstStart()
             }
@@ -573,6 +573,7 @@ class Ac130Gunnery(private val boss: Ac130BossEntity) {
         // M61 cadence and scatter
         const val CANNON_BURST_MIN = 45
         const val CANNON_BURST_MAX = 90
+        const val MAX_CANNON_BURST_TICKS = 200
         const val CANNON_PAUSE_MIN = 2
         const val CANNON_PAUSE_MAX = 4
         const val BURST_GAP_RESET = 2

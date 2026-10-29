@@ -13,7 +13,7 @@ import net.minecraft.world.entity.Entity
 val TrackedVehicles = EntityTracker { it is VehicleEntity }
 
 /**
- * Whether [entity] is an aircraft the bosses may hunt with `targetPriority = OTHER_PLANES` (experimental): an SBW airplane
+ * Whether [entity] is an aircraft the bosses may hunt when `planeWeight` is above 0 (experimental): an SBW airplane
  * or helicopter other than [boss] itself, in the same level, not a wreck and not a crippled boss, that is manned. Another
  * boss counts as manned (it has a hidden crew); any other plane needs a passenger who is not a creative / spectator
  * player, so parked empty planes are ignored. Range is not checked here.

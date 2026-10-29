@@ -62,7 +62,8 @@ class TerrainGuard(private val boss: VehicleEntity) {
     /**
      * Lowest safe altitude along the current flight path (cached, rescanned every [SCAN_INTERVAL] ticks).
      *
-     * @param unknownY altitude assumed for unloaded chunks; the brain passes "target Y + 40"
+     * @param unknownY altitude assumed for unloaded chunks (everything past the nearest player's render distance); the
+     *   A-10 passes a point just below the target so unseen terrain neither forces pull-ups nor blocks dive corridors
      */
     fun floorAhead(unknownY: Double = boss.y + 40.0): Double {
         val now = boss.tickCount
@@ -153,14 +154,14 @@ class TerrainGuard(private val boss: VehicleEntity) {
     private companion object {
         const val SCAN_INTERVAL = 5
         const val RAY_COUNT = 7
-        const val FAN_HALF_ANGLE = 20.0
+        const val FAN_HALF_ANGLE = 15.0
         const val STEP = 16.0
-        const val LOOK_AHEAD_TICKS = 60.0
-        const val MIN_LOOK_AHEAD = 64.0
-        const val MAX_LOOK_AHEAD = 260.0
-        const val BASE_MARGIN = 12.0
-        const val SPEED_MARGIN = 3.0
-        const val COMFORT_CLEARANCE = 28.0
+        const val LOOK_AHEAD_TICKS = 35.0
+        const val MIN_LOOK_AHEAD = 48.0
+        const val MAX_LOOK_AHEAD = 160.0
+        const val BASE_MARGIN = 8.0
+        const val SPEED_MARGIN = 1.5
+        const val COMFORT_CLEARANCE = 24.0
 
         const val DIVE_STEP = 12.0
         const val CORRIDOR_HALF_WIDTH = 10.0

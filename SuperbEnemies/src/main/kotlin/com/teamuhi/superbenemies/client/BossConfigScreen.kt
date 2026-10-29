@@ -2,6 +2,7 @@ package com.teamuhi.superbenemies.client
 
 import net.minecraft.ChatFormatting
 import net.minecraft.client.gui.GuiGraphics
+import net.minecraft.client.gui.components.AbstractSliderButton
 import net.minecraft.client.gui.components.AbstractWidget
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.components.CycleButton
@@ -15,24 +16,29 @@ import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.CommonComponents
 import net.minecraft.network.chat.Component
 import net.minecraftforge.common.ForgeConfigSpec
+import org.lwjgl.glfw.GLFW
+import kotlin.math.roundToInt
 
 /**
  * One config file shown by [BossConfigScreen] as a tab: its [title], its [spec] and the options to list, in file order.
  * A section header is drawn whenever the first path element changes. [requires] maps an option to the on/off option of
  * the same page it depends on; while that toggle is off (as currently edited) the option is greyed out and not editable.
+ * [sliders] lists the integer options shown as a slider over the given range instead of a text box (Forge's own range
+ * class is private, so the spec cannot be asked); the spec still validates the value.
  */
 data class ConfigPage(
     val title: Component,
     val spec: ForgeConfigSpec,
     val values: List<ForgeConfigSpec.ConfigValue<*>>,
     val requires: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap(),
-    val disabledWhenEnabled: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap()
+    val disabledWhenEnabled: Map<ForgeConfigSpec.ConfigValue<*>, ForgeConfigSpec.ConfigValue<Boolean>> = emptyMap(),
+    val sliders: Map<ForgeConfigSpec.ConfigValue<*>, IntRange> = emptyMap()
 )
 
 /**
  * In-game editor for the mod's config files, opened from the Mods screen. Forge 1.20.1 has no automatic config screen,
- * so this builds one from the specs: an on/off button per boolean, a cycle button per enum and a validated text box per
- * number (range shown in the tooltip).
+ * so this builds one from the specs: an on/off button per boolean, a cycle button per enum, a slider per small integer
+ * range (the 0 to 5 target weights) and a validated text box per other number (range shown in the tooltip).
  *
  * One tab per [pages] entry, a search box that filters the open tab, a reset button per option and per tab, and
  * change markers: edited options turn yellow with a dot, tabs get a `*` (unsaved) or `!` (invalid) suffix and the
@@ -209,7 +215,7 @@ class BossConfigScreen(private val parent: Screen, private val pages: List<Confi
     /** The typed value for [text], or null when it is not a valid number / is outside the option's range. */
     private fun parse(value: ForgeConfigSpec.ConfigValue<*>, text: String): Any? = when (value.get()) {
         is Boolean -> text.toBooleanStrictOrNull()
-        // ValueSpec.test applies the option's own range check (Forge's Range class is not accessible from Kotlin).
+        // ValueSpec.test applies the option's own range check.
         is Int -> text.trim().toIntOrNull()?.takeIf { specOf(value).test(it) }
         is Double -> text.trim().toDoubleOrNull()?.takeIf { it.isFinite() && specOf(value).test(it) }
         is Enum<*> -> enumConstants(value).firstOrNull { it.name == text }
@@ -418,6 +424,11 @@ class BossConfigScreen(private val parent: Screen, private val pages: List<Confi
                         refreshStatus()
                     }
             }
+            val sliderRange = pageOf.getValue(value).sliders[value]
+            if (sliderRange != null) {
+                val initial = draft.trim().toIntOrNull()?.coerceIn(sliderRange.first, sliderRange.last) ?: sliderRange.first
+                return IntSlider(value, sliderRange.first, sliderRange.last, initial, label)
+            }
             val box = EditBox(font, 0, 0, CONTROL_WIDTH, 20, label)
             box.setMaxLength(MAX_NUMBER_LENGTH)
             box.value = draft
@@ -475,7 +486,59 @@ class BossConfigScreen(private val parent: Screen, private val pages: List<Confi
         override fun narratables(): List<NarratableEntry> = listOf(widget, resetButton)
     }
 
+    /**
+     * Slider for an integer option with a small range: it snaps to whole numbers [min]..[max] and writes the number into
+     * the option's draft, so [parse], [isDirty] and the reset button treat it like a typed value. Shows the number, and
+     * "Off" for 0 when the range starts at 0.
+     */
+    private inner class IntSlider(
+        private val option: ForgeConfigSpec.ConfigValue<*>,
+        private val min: Int,
+        private val max: Int,
+        initial: Int,
+        label: Component
+    ) : AbstractSliderButton(0, 0, CONTROL_WIDTH, 20, label, fractionOf(initial, min, max)) {
+
+        init {
+            updateMessage()
+        }
+
+        private fun selected(): Int = (min + (value * (max - min)).roundToInt()).coerceIn(min, max)
+
+        override fun updateMessage() {
+            val n = selected()
+            message = if (n == 0 && min == 0) Component.translatable("screen.superbenemies.config.slider_off")
+            else Component.literal(n.toString())
+        }
+
+        override fun applyValue() {
+            val n = selected()
+            value = fractionOf(n, min, max)
+            drafts[option] = n.toString()
+            refreshStatus()
+        }
+
+        /** Left / right step by one whole number instead of one pixel of the track. */
+        override fun keyPressed(keyCode: Int, scanCode: Int, modifiers: Int): Boolean {
+            val step = when (keyCode) {
+                GLFW.GLFW_KEY_LEFT -> -1
+                GLFW.GLFW_KEY_RIGHT -> 1
+                else -> return super.keyPressed(keyCode, scanCode, modifiers)
+            }
+            val n = (selected() + step).coerceIn(min, max)
+            if (n != selected()) {
+                value = fractionOf(n, min, max)
+                applyValue()
+                updateMessage()
+            }
+            return true
+        }
+    }
+
     private companion object {
+        /** Slider position (0..1) of [n] within [min]..[max]. */
+        fun fractionOf(n: Int, min: Int, max: Int): Double = if (max > min) (n - min).toDouble() / (max - min) else 0.0
+
         const val TITLE_Y = 8
         const val TAB_Y = 22
         const val TAB_MAX_WIDTH = 120

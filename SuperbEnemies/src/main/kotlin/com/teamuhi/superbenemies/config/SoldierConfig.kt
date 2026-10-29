@@ -25,6 +25,7 @@ object SoldierConfig {
     val INVULNERABLE: ForgeConfigSpec.BooleanValue
     val SHOW_HEALTH_TAG: ForgeConfigSpec.BooleanValue
     val SHOW_DEATH_MESSAGE: ForgeConfigSpec.BooleanValue
+    val SHOW_COUNTER: ForgeConfigSpec.BooleanValue
     val BOSSES_TARGET_SOLDIER: ForgeConfigSpec.BooleanValue
 
     // [dummy_soldier_ammo]
@@ -100,6 +101,10 @@ object SoldierConfig {
                 "Announce in chat when a soldier is killed, e.g. \"Dummy Soldier was shot by A-10 Warthog\". Read live."
             )
             .define("showDeathMessage", true)
+
+        SHOW_COUNTER = b
+            .comment("Show the number of loaded dummy soldiers on the client hotbar. Read live.")
+            .define("showCounter", false)
 
         BOSSES_TARGET_SOLDIER = b
             .comment(
@@ -244,7 +249,7 @@ object SoldierConfig {
         SPEC = b.build()
 
         ALL = listOf(
-            MAX_HEALTH, ARMOR, ARMOR_TOUGHNESS, INVULNERABLE, SHOW_HEALTH_TAG, SHOW_DEATH_MESSAGE, BOSSES_TARGET_SOLDIER,
+            MAX_HEALTH, ARMOR, ARMOR_TOUGHNESS, INVULNERABLE, SHOW_HEALTH_TAG, SHOW_DEATH_MESSAGE, SHOW_COUNTER, BOSSES_TARGET_SOLDIER,
             UNLIMITED_AMMO, MISSILES, RELOAD_TICKS, RESUPPLY_SECONDS, MISSILE_DAMAGE, EXPLOSION_DAMAGE, EXPLOSION_RADIUS,
             MOVEMENT, STRAFE_RADIUS, ROAM_DISTANCE, ROAM_PAUSE_SECONDS, STRAFE_JUMPING, STRAFE_SPRINTING, STRAFE_CROUCHING,
             ENGAGE_RANGE, MIN_ENGAGE_RANGE, LOCK_TIME_TICKS, AIM_TURN_SPEED, REACTION_TICKS, HOLD_FIRE_ON_FLARES, STAGGER_SHOTS,

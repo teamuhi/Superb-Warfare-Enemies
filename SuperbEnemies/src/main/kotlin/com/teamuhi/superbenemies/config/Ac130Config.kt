@@ -19,7 +19,14 @@ object Ac130Config {
     val AGGRO_RANGE: ForgeConfigSpec.IntValue
     val GLOBAL_AGGRO: ForgeConfigSpec.BooleanValue
     val ORBIT_RADIUS: ForgeConfigSpec.IntValue
-    val TARGET_PRIORITY: ForgeConfigSpec.EnumValue<TargetPriority>
+    val TARGETING_METHOD: ForgeConfigSpec.EnumValue<TargetingMethod>
+    val PLAYER_WEIGHT: ForgeConfigSpec.IntValue
+    val MOB_WEIGHT: ForgeConfigSpec.IntValue
+    val HOSTILE_MOB_WEIGHT: ForgeConfigSpec.IntValue
+    val PLANE_WEIGHT: ForgeConfigSpec.IntValue
+
+    /** The four weight options as one object, for classifying a target by [TargetCategory]. */
+    val WEIGHTS: TargetWeights
     val MOB_SCAN_RANGE: ForgeConfigSpec.IntValue
     val RANDOM_TARGETING: ForgeConfigSpec.BooleanValue
     val RANDOM_TARGET_SECONDS: ForgeConfigSpec.IntValue
@@ -57,6 +64,9 @@ object Ac130Config {
     /** Every option in file order (grouped by section); the in-game config screen is built from this. */
     val ALL: List<ForgeConfigSpec.ConfigValue<*>>
 
+    /** Options the config screen draws as sliders, with their range: the four target weights. */
+    val SLIDERS: Map<ForgeConfigSpec.ConfigValue<*>, IntRange>
+
     init {
         val b = ForgeConfigSpec.Builder()
 
@@ -82,19 +92,49 @@ object Ac130Config {
             .comment("Standoff radius (blocks) of the orbit around the target. The AI adjusts it between 0.45x and 1.8x.")
             .defineInRange("orbitRadius", 180, 100, 400)
 
-        TARGET_PRIORITY = b
+        TARGETING_METHOD = b
             .comment(
-                "What the boss attacks: PLAYERS, PLAYERS_AND_MOBS (nearest), MOBS_ONLY or OTHER_PLANES",
-                "(experimental: manned airplanes/helicopters and other bosses only)."
+                "How well the boss keeps track of its target. STATIC: it always knows exactly where the target is.",
+                "DYNAMIC: a target with a cover block above it is hidden and the boss attacks the last position it saw it at;",
+                "once the target is under open sky again it is tracked live. Blocks in the superbenemies:boss_see_through",
+                "block tag (glass, leaves, fences, carpets...) and blocks without collision (water, plants) are not cover.",
+                "With DYNAMIC the boss prefers any exposed target and only keeps attacking a hidden one when there is none."
             )
-            .defineEnum("targetPriority", TargetPriority.PLAYERS_AND_MOBS)
+            .defineEnum("targetingMethod", TargetingMethod.DYNAMIC)
+
+        PLAYER_WEIGHT = b
+            .comment(
+                "How much the boss wants to attack players (and player dummies that bosses target), from 0 to 5. 0 = never.",
+                "With randomTargeting the weight is the relative chance of being drawn; otherwise a weight-5 target",
+                "counts as 5x closer than a weight-1 target."
+            )
+            .defineInRange("playerWeight", 5, 0, MAX_TARGET_WEIGHT)
+
+        MOB_WEIGHT = b
+            .comment(
+                "Same for non-hostile mobs: animals, villagers, golems. 0 = never."
+            )
+            .defineInRange("mobWeight", 2, 0, MAX_TARGET_WEIGHT)
+
+        HOSTILE_MOB_WEIGHT = b
+            .comment("Same for hostile mobs (monsters). 0 = never.")
+            .defineInRange("hostileMobWeight", 4, 0, MAX_TARGET_WEIGHT)
+
+        PLANE_WEIGHT = b
+            .comment(
+                "EXPERIMENTAL. Same for manned airplanes and helicopters and for other bosses. 0 = never.",
+                "The normal attack patterns are reused, so fast movers are often missed."
+            )
+            .defineInRange("planeWeight", 0, 0, MAX_TARGET_WEIGHT)
+
+        WEIGHTS = TargetWeights(PLAYER_WEIGHT, MOB_WEIGHT, HOSTILE_MOB_WEIGHT, PLANE_WEIGHT)
 
         MOB_SCAN_RANGE = b
-            .comment("Range (blocks) in which mobs are considered as targets. Only used with PLAYERS_AND_MOBS / MOBS_ONLY.")
+            .comment("Range (blocks) in which mobs are considered as targets. Only used when mobWeight or hostileMobWeight is above 0.")
             .defineInRange("mobScanRange", 128, 32, 256)
 
         RANDOM_TARGETING = b
-            .comment("Switch to a random target periodically. Players are drawn first, mobs only if no player is valid.")
+            .comment("Switch to a random target periodically, drawn by the target weights (playerWeight, mobWeight...).")
             .define("randomTargeting", true)
 
         RANDOM_TARGET_SECONDS = b
@@ -221,8 +261,11 @@ object Ac130Config {
         b.pop()
         SPEC = b.build()
 
+        SLIDERS = listOf(PLAYER_WEIGHT, MOB_WEIGHT, HOSTILE_MOB_WEIGHT, PLANE_WEIGHT).associateWith { 0..MAX_TARGET_WEIGHT }
+
         ALL = listOf(
-            MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, ORBIT_RADIUS, TARGET_PRIORITY, MOB_SCAN_RANGE,
+            MAX_HEALTH, CRUISE_HEIGHT, AGGRO_RANGE, GLOBAL_AGGRO, ORBIT_RADIUS, TARGETING_METHOD, PLAYER_WEIGHT, MOB_WEIGHT,
+            HOSTILE_MOB_WEIGHT, PLANE_WEIGHT, MOB_SCAN_RANGE,
             RANDOM_TARGETING, RANDOM_TARGET_SECONDS,
             CANNON_DAMAGE_MULT, BOFORS_DAMAGE_MULT, HOWITZER_DAMAGE_MULT, BLOCK_DAMAGE,
             CANNON_ENABLED, BOFORS_ENABLED, HOWITZER_ENABLED,

@@ -1,6 +1,6 @@
 # Superb Enemies
 
-Enemy and boss addons for [Superb Warfare](https://github.com/atsuishio/SuperbWarfare) on Minecraft 1.20.1 and Forge 47.
+Enemy and boss addons for [Superb Warfare](https://github.com/Mercurows/SuperbWarfare) on Minecraft 1.20.1 and Forge 47.
 
 <table>
 <tr><th>Folder</th><th>Purpose</th></tr>
@@ -14,16 +14,20 @@ Enemy and boss addons for [Superb Warfare](https://github.com/atsuishio/SuperbWa
 - AC-130H boss with 25mm, 40mm and 105mm guns, orbit attacks and multi-target fire.
 - Player Dummy for testing boss behavior.
 - Dummy Soldier with Igla MANPADS, missile guidance, cover behavior and resupply.
+- Optional client hotbar counters for loaded player dummies and dummy soldiers.
 - Configurable targeting, weapons, movement, ammunition, flares and resupply.
-- In-game config screens with search, validation, reset controls and unsaved-change tracking.
+- Weighted, cover-aware boss targeting: bosses lose sight of targets under overhead cover and attack their last known position.
+- In-game config screens with search, sliders, validation, reset controls and unsaved-change tracking.
 
 ## Bosses
 
 ### A-10 Warthog
 
-- Hunts players, mobs or other aircraft according to `targetPriority`.
+- Hunts players, mobs, hostile mobs or other aircraft according to its target weights.
 - Uses gun, rocket, bomb, missile, combination and taunt attacks.
+- Circles the spot where its last target was seen (for example where it died) until a new target appears.
 - Avoids terrain, reacts to homing missiles and supports weighted flare maneuvers.
+- Treats terrain beyond the nearest player's render distance as flat, so a short render distance (for example with Distant Horizons) does not stop it from attacking.
 - Has health phases, a boss bar, crash behavior, loot and experience rewards.
 - Supports finite ammunition and saved resupply trips.
 
@@ -32,7 +36,7 @@ Enemy and boss addons for [Superb Warfare](https://github.com/atsuishio/SuperbWa
 - Holds a high left-hand orbit instead of diving.
 - Fires the 25mm cannon, 40mm Bofors and 105mm howitzer independently.
 - Supports normal, split-fire and focus-fire patterns.
-- Can attack players, mobs or other aircraft, including targets under cover.
+- Can attack players, mobs, hostile mobs or other aircraft according to its target weights.
 - Automatically switches to piercing rounds when a block is between a gun and its target.
 - Supports missile evasion, taunt flares, finite ammunition and resupply.
 
@@ -63,6 +67,22 @@ Enemy and boss addons for [Superb Warfare](https://github.com/atsuishio/SuperbWa
 
 All options are live unless stated otherwise. Config files are available in `config/` and in **Mods > Superb Enemies > Config**.
 
+### Targeting
+
+Both bosses share the same targeting options, each set independently per boss.
+
+- **Target weights** (`playerWeight`, `mobWeight`, `hostileMobWeight`, `planeWeight`): sliders from 0 to 5. 0 means the boss never attacks that kind of target.
+  - `mobWeight` covers non-hostile mobs such as animals, villagers and golems. `hostileMobWeight` covers monsters.
+  - `planeWeight` is experimental. It targets manned airplanes, manned helicopters and the other boss.
+  - Player dummies with their boss-targeting option on count as players.
+  - With `randomTargeting` on, the weight is the relative chance of being drawn. With it off, the boss picks the best distance-to-weight score, so a weight 5 target counts as 5 times closer than a weight 1 target.
+- **Targeting method** (`targetingMethod`):
+  - `STATIC`: the boss always knows where its target is.
+  - `DYNAMIC` (default): a target with a cover block anywhere above its head is hidden unless the boss has a clear direct ray to it. The boss switches to an exposed target if one exists. Otherwise it keeps attacking the hidden target's last known position until the target steps back under open sky or becomes directly visible.
+  - These blocks don't count as cover: air, water, plants and other blocks without collision, glass, glass panes, leaves, fences, fence gates, carpets, iron bars, chains and scaffolding.
+  - The see-through list is the block tag `superbenemies:boss_see_through`, which datapacks can extend for other mods' blocks.
+- The A-10 only commits to mobs that are under open sky, whichever method is selected.
+
 ### A-10
 
 <table>
@@ -71,7 +91,8 @@ All options are live unless stated otherwise. Config files are available in `con
 <tr><td><code>cruiseHeightAboveTarget</code></td><td>40</td><td>Flight height.</td></tr>
 <tr><td><code>globalAggro</code></td><td>true</td><td>Dimension-wide player hunting.</td></tr>
 <tr><td><code>aggroRange</code></td><td>256</td><td>Player range.</td></tr>
-<tr><td><code>targetPriority</code></td><td>PLAYERS</td><td>Target type.</td></tr>
+<tr><td><code>targetingMethod</code></td><td>DYNAMIC</td><td>Static or cover-aware targeting.</td></tr>
+<tr><td><code>playerWeight</code>, <code>mobWeight</code>, <code>hostileMobWeight</code>, <code>planeWeight</code></td><td>5, 0, 0, 0</td><td>Target weights (0-5).</td></tr>
 <tr><td><code>mobScanRange</code></td><td>128</td><td>Mob range.</td></tr>
 <tr><td><code>randomTargeting</code></td><td>true</td><td>New target per attack.</td></tr>
 <tr><td><code>orbitRadius</code></td><td>90</td><td>Orbit distance.</td></tr>
@@ -99,7 +120,8 @@ All options are live unless stated otherwise. Config files are available in `con
 <tr><td><code>cruiseHeightAboveTarget</code></td><td>90</td><td>Orbit height.</td></tr>
 <tr><td><code>globalAggro</code>, <code>aggroRange</code></td><td>true, 256</td><td>Player targeting.</td></tr>
 <tr><td><code>orbitRadius</code></td><td>180</td><td>Standoff distance.</td></tr>
-<tr><td><code>targetPriority</code></td><td>PLAYERS_AND_MOBS</td><td>Target type.</td></tr>
+<tr><td><code>targetingMethod</code></td><td>DYNAMIC</td><td>Static or cover-aware targeting.</td></tr>
+<tr><td><code>playerWeight</code>, <code>mobWeight</code>, <code>hostileMobWeight</code>, <code>planeWeight</code></td><td>5, 2, 4, 0</td><td>Target weights (0-5).</td></tr>
 <tr><td><code>randomTargeting</code>, <code>randomTargetSeconds</code></td><td>true, 20</td><td>Target switching.</td></tr>
 <tr><td><code>mobScanRange</code></td><td>128</td><td>Mob range.</td></tr>
 <tr><td><code>*DamageMultiplier</code></td><td>1.0</td><td>Gun damage.</td></tr>

@@ -176,8 +176,8 @@
             },
             "Magazine": 1,
             "EmptyReloadTime": 300,
-            "ExplosionDamage": 1600,
-            "ExplosionRadius": 40
+            "ExplosionDamage": 1200,
+            "ExplosionRadius": 30
           }
         }
       ],
@@ -190,8 +190,8 @@
       "Gravity": 0.06,
       "Spread": 0.5,
       "Name": "weapon.superbwarfare.mk_82_bomb",
-      "ExplosionDamage": 650,
-      "ExplosionRadius": 22,
+      "ExplosionDamage": 500,
+      "ExplosionRadius": 16,
       "AddShooterDeltaMovement": true,
       "Velocity": 0.95,
       "ShootPos": {

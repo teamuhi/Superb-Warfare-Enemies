@@ -3,15 +3,21 @@ package com.teamuhi.superbenemies.entity.boss.a10.ai
 import com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity
 import com.teamuhi.superbenemies.SuperbEnemies
 import com.teamuhi.superbenemies.config.BossConfig
+import com.teamuhi.superbenemies.config.TargetCategory
+import com.teamuhi.superbenemies.config.TargetingMethod
 import com.teamuhi.superbenemies.entity.boss.a10.A10WarthogBossEntity
 import com.teamuhi.superbenemies.entity.boss.common.BossCrewEntity
 import com.teamuhi.superbenemies.entity.boss.common.BossRespawns
 import com.teamuhi.superbenemies.entity.boss.common.ResupplyNotices
 import com.teamuhi.superbenemies.entity.boss.common.ai.FlightController
 import com.teamuhi.superbenemies.entity.boss.common.ai.FlightMath
+import com.teamuhi.superbenemies.entity.boss.common.ai.SkyExposure
+import com.teamuhi.superbenemies.entity.boss.common.ai.TargetChoice
+import com.teamuhi.superbenemies.entity.boss.common.ai.TargetSight
 import com.teamuhi.superbenemies.entity.boss.common.ai.TerrainGuard
 import com.teamuhi.superbenemies.entity.boss.common.ai.ThreatMonitor
 import com.teamuhi.superbenemies.entity.boss.common.ai.TrackedVehicles
+import com.teamuhi.superbenemies.entity.boss.common.ai.categoryOf
 import com.teamuhi.superbenemies.entity.boss.common.ai.isEnemyPlane
 import com.teamuhi.superbenemies.entity.boss.common.ai.riddenBy
 import com.teamuhi.superbenemies.entity.dummy.HumanoidDummyEntity
@@ -23,7 +29,6 @@ import net.minecraft.server.level.ServerPlayer
 import net.minecraft.util.Mth
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.Mob
-import net.minecraft.world.level.levelgen.Heightmap
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.Vec3
 import org.joml.Quaternionf
@@ -65,6 +70,9 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private val fire = FireControl(boss)
     private val threats = ThreatMonitor(boss)
 
+    /** Under the `DYNAMIC` targeting method this swaps a covered target for a ghost at its last known position. */
+    private val sight = TargetSight(boss)
+
     var state: BossState = BossState.INGRESS
         private set
 
@@ -80,14 +88,27 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private var targetUuid: UUID? = null
     private var targetEntity: Entity? = null
 
-    /** What the weapons are aimed at: the target (a player, player dummy or mob), or the vehicle it rides (a plane is its own). */
+    /**
+     * What the weapons are aimed at: the target (a player, player dummy or mob), or the vehicle it rides (a plane is its
+     * own). While a `DYNAMIC` target is under cover this is [sight]'s ghost, a zero-size stand-in at its last known
+     * position; [targetEntity] stays the real one, so validity and range checks never see the ghost.
+     */
     private var aim: Entity? = null
     private var aimVelocity: Vec3 = Vec3.ZERO
     private var lastAimPosition: Vec3 = Vec3.ZERO
     private var trackedAimId = -1
 
-    /** Where the target was last seen (refreshed every [KNOWN_POSITION_INTERVAL] ticks); gun runs raze this spot. */
+    /**
+     * Where the target was last seen (refreshed every [KNOWN_POSITION_INTERVAL] ticks); gun runs raze this spot. It
+     * follows [aim], so it freezes while a `DYNAMIC` target hides.
+     */
     private var lastKnownPos: Vec3? = null
+
+    /**
+     * Where the boss last had a target (updated every tick while it has one, unlike [lastKnownPos] which only refreshes
+     * every [KNOWN_POSITION_INTERVAL] ticks and is frozen during a run). With no target the boss circles this spot.
+     */
+    private var lastTargetPos: Vec3? = null
     private var razeOffset: Vec3 = Vec3.ZERO
     private var nextRazeJitterTick = 0
     private var initialScanDone = false
@@ -159,6 +180,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private var bombPhase = BombPhase.SETUP
     private var stickEndTick = 0
     private var previousMiss = Double.MAX_VALUE
+    private var nukeAim: Vec3? = null
 
     // --- resupply ---
     private var depot: Vec3? = null
@@ -245,10 +267,11 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         fire.tick()
         updateTarget(level)
         val target = aim
+        target?.let { lastTargetPos = it.position() }
 
         if (threats.tick()) enterEvade()
 
-        // The target is gone: stop attacking and orbit the home position (INGRESS without a target).
+        // The target is gone: stop attacking and orbit where it was last seen (INGRESS without a target).
         if (target == null && state.needsTarget()) enter(BossState.INGRESS)
 
         when (state) {
@@ -317,8 +340,9 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
             current = targetEntity
         }
 
-        // A player in a vehicle is attacked (and locked onto) through the vehicle.
-        aim = current?.rootVehicle
+        // A player in a vehicle is attacked (and locked onto) through the vehicle. A target under cover (DYNAMIC) is
+        // replaced by the ghost at its last known position, which the refresh below then simply stops moving.
+        aim = sight.resolve(current?.rootVehicle, BossConfig.TARGETING_METHOD.get())
         trackAim(aim)
         // A gun run keeps razing the spot it started on: a replacement target must not drag the dive somewhere else.
         aim?.let {
@@ -331,15 +355,18 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     }
 
     /**
-     * What `targetPriority` allows: survival / adventure players, dummies (player dummy, dummy soldier) while their `bossesTarget...` option is on (both
-     * count as players), living mobs and, for `OTHER_PLANES` (experimental), manned aircraft. Read live, so changing the
-     * options drops a target that is no longer allowed at once. Players, dummies and planes obey the aggro range; mobs
-     * obey `mobScanRange`, whatever `globalAggro` says.
+     * What the target weights allow: an entity is a target only when its category (see [categoryOf]) has a weight above
+     * 0. That covers survival / adventure players, dummies (player dummy, dummy soldier) while their `bossesTarget...`
+     * option is on (both count as players), living mobs (plain and hostile, weighted separately) and, with a plane
+     * weight (experimental), manned aircraft. Read live, so changing the options drops a target that is no longer
+     * allowed at once. A dummy whose option is off is a plain mob to [categoryOf], but never an ordinary mob target here.
+     * Players, dummies and planes obey the aggro range; mobs obey `mobScanRange`, whatever `globalAggro` says.
      */
     private fun isValidTarget(entity: Entity): Boolean {
-        val priority = BossConfig.TARGET_PRIORITY.get()
+        val category = categoryOf(entity)
+        if (category == null || BossConfig.WEIGHTS.of(category) <= 0) return false
         if (entity is VehicleEntity) {
-            if (!priority.planes || !isEnemyPlane(boss, entity)) return false
+            if (!isEnemyPlane(boss, entity)) return false
             if (BossConfig.GLOBAL_AGGRO.get()) return true
             val limit = BossConfig.AGGRO_RANGE.get() * LOSE_TARGET_FACTOR
             val dx = entity.x - boss.x
@@ -348,15 +375,16 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         }
         val mob = when (entity) {
             is ServerPlayer -> {
-                if (!priority.players || entity.isSpectator || entity.isCreative) return false
+                if (entity.isSpectator || entity.isCreative) return false
                 false
             }
             is HumanoidDummyEntity -> {
-                if (!priority.players || !entity.settings.targetedByBosses()) return false
+                // Only a dummy the bosses are set to target counts (as a player); otherwise it is not a target at all.
+                if (category != TargetCategory.PLAYER) return false
                 false
             }
             is Mob -> {
-                if (!priority.mobs || entity.isInvulnerable || !entity.isAttackable ||
+                if (entity.isInvulnerable || !entity.isAttackable ||
                     entity is BossCrewEntity || boss.isCrew(entity) || entity.rootVehicle === boss
                 ) return false
                 true
@@ -373,47 +401,47 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         return dx * dx + dz * dz <= limit * limit
     }
 
-    /** A mob the plane can hit: valid, and standing under open sky (it would circle forever over a cave mob). */
-    private fun eligibleMob(mob: Mob): Boolean = isValidTarget(mob) && underOpenSky(mob)
-
-    /** Never loads a chunk: an unloaded chunk counts as "not exposed". */
-    private fun underOpenSky(mob: Mob): Boolean {
-        val x = Mth.floor(mob.x)
-        val z = Mth.floor(mob.z)
-        val chunk = boss.level().chunkSource.getChunkNow(x shr 4, z shr 4) ?: return false
-        val surface = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x and 15, z and 15)
-        return mob.y >= surface - SKY_TOLERANCE
-    }
+    /**
+     * A mob the plane can hit: valid, and exposed to the sky (it would circle forever over a cave mob). Required in both
+     * targeting methods: `DYNAMIC` only changes how a player's cover is handled, the plane never commits to a covered
+     * mob. Never loads a chunk: [SkyExposure] counts an unloaded one as "not exposed".
+     */
+    private fun eligibleMob(mob: Mob): Boolean = isValidTarget(mob) && SkyExposure.isExposed(mob)
 
     /** Runs that must not change victim half way: the aim point and the corridor checks were planned for one target. */
     private fun targetLocked(): Boolean =
         state == BossState.CLIMB_FOR_DIVE || state == BossState.GUN_DIVE || state == BossState.PULL_OUT ||
                 state == BossState.STALL_TURN || state == BossState.BOMB_RUN
 
+    /**
+     * Every valid target in range, for the categories whose weight is above 0 (a category switched off is not even
+     * scanned; [isValidTarget] also drops an individual entity whose own category weight is 0, e.g. zombies with
+     * `hostileMobWeight` 0 while `mobWeight` is above 0).
+     */
     private fun candidates(level: ServerLevel): MutableList<Entity> {
-        val priority = BossConfig.TARGET_PRIORITY.get()
+        val weights = BossConfig.WEIGHTS
         val aggro = if (BossConfig.GLOBAL_AGGRO.get()) Double.MAX_VALUE else BossConfig.AGGRO_RANGE.get().toDouble()
         val here = boss.position()
         val candidates = ArrayList<Entity>()
-        if (priority.players) {
+        if (weights.allowsPlayers) {
             for (player in level.players()) candidates.add(player)
             for (dummy in TrackedDummies.all(level)) {
                 if (dummy is HumanoidDummyEntity && dummy.settings.targetedByBosses()) candidates.add(dummy)
             }
             candidates.removeAll { !(isValidTarget(it) && FlightMath.horizontalDistance(it.position(), here) <= aggro) }
         }
-        if (priority.planes) {
+        if (weights.allowsPlanes) {
             for (plane in TrackedVehicles.all(level)) {
                 if (isValidTarget(plane) && FlightMath.horizontalDistance(plane.position(), here) <= aggro) candidates.add(plane)
             }
         }
-        if (priority.mobs) {
+        if (weights.allowsMobs) {
             val reach = BossConfig.MOB_SCAN_RANGE.get().toDouble()
             val box = AABB(
                 boss.x - reach, level.minBuildHeight.toDouble(), boss.z - reach,
                 boss.x + reach, level.maxBuildHeight.toDouble(), boss.z + reach
             )
-            // Dummies are Mobs too: they are player-class candidates above (or ignored), never an ordinary mob here.
+            // Dummies are Mobs too: they are player-category candidates above (or ignored), never an ordinary mob here.
             for (mob in level.getEntitiesOfClass(Mob::class.java, box) { it !is HumanoidDummyEntity && eligibleMob(it) }) {
                 if (FlightMath.horizontalDistance(mob.position(), here) <= reach) candidates.add(mob)
             }
@@ -421,25 +449,44 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         return candidates
     }
 
-    /** Random draws prefer players (and dummies, planes); mobs are drawn only when none qualifies. */
-    private fun List<Entity>.randomPick(): Entity? {
-        val players = filter { it !is Mob || it is HumanoidDummyEntity }
-        return (players.ifEmpty { this }).randomOrNull(boss.getRandom())
+    /** The category weight of [entity] (0 for anything that is not a target). */
+    private fun weightOf(entity: Entity): Int = BossConfig.WEIGHTS.of(categoryOf(entity))
+
+    /** Horizontal distance from the boss: the plane works in the ground plane, whatever the altitude difference. */
+    private fun distanceTo(entity: Entity): Double = FlightMath.horizontalDistance(entity.position(), boss.position())
+
+    /** Whether [entity] (through the vehicle it rides, as [aim] is) is under cover; always false for `STATIC`. */
+    private fun isHidden(entity: Entity, method: TargetingMethod): Boolean = sight.isHidden(entity.rootVehicle, method)
+
+    /**
+     * The candidates a choice is made from. `STATIC` uses all of them. `DYNAMIC` prefers the ones the boss can see: the
+     * covered ones are used only when nobody is exposed, so the boss keeps hitting a hidden target's last known spot
+     * only when there is nothing better to attack.
+     */
+    private fun poolOf(candidates: List<Entity>, method: TargetingMethod): List<Entity> {
+        if (method == TargetingMethod.STATIC) return candidates
+        val (hidden, exposed) = candidates.partition { isHidden(it, method) }
+        return exposed.ifEmpty { hidden }
     }
 
     private fun pickTarget(level: ServerLevel) {
-        val held = targetEntity?.takeIf { isValidTarget(it) }
+        var held = targetEntity?.takeIf { isValidTarget(it) }
+        // A run in progress finishes on its victim, on the ghost if the victim has gone under cover.
         if (held != null && targetLocked()) return
-        val candidates = candidates(level)
-        // Most recent attacker first, then keep the current target, then the nearest candidate. With randomTargeting the
-        // target only changes when it is lost (a new one is drawn per attack, see rerollTarget).
+        val method = BossConfig.TARGETING_METHOD.get()
+        val pool = poolOf(candidates(level), method)
+        // A covered target is dropped as soon as somebody exposed can be attacked instead (DYNAMIC only).
+        if (held != null && isHidden(held, method) && pool.any { !isHidden(it, method) }) held = null
+        // Most recent attacker first, then keep the current target, then the best weighted-distance candidate. With
+        // randomTargeting the target only changes when it is lost (a new one is drawn per attack, see rerollTarget),
+        // by a draw proportional to the weights.
         val chosen = if (BossConfig.RANDOM_TARGETING.get()) {
-            held ?: candidates.randomPick()
+            held ?: TargetChoice.weightedRandom(pool, this::weightOf, boss.getRandom())
         } else {
             val attackerId = boss.lastAttackerUUID
-            candidates.firstOrNull { riddenBy(it, attackerId) }
+            pool.firstOrNull { riddenBy(it, attackerId) }
                 ?: held
-                ?: candidates.minByOrNull { FlightMath.horizontalDistance(it.position(), boss.position()) }
+                ?: TargetChoice.bestScore(pool, this::weightOf, this::distanceTo)
         }
         applyTarget(chosen)
     }
@@ -450,22 +497,23 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         targetUuid = chosen?.uuid
     }
 
-    /** `randomTargeting`: draws a fresh random target (possibly the same one) at the start of an attack. */
+    /**
+     * `randomTargeting`: draws a fresh random target (possibly the same one) at the start of an attack, each candidate
+     * in proportion to its weight (exposed ones first under `DYNAMIC`, see [poolOf]).
+     */
     private fun rerollTarget(level: ServerLevel) {
-        val all = candidates(level)
-        // Prefer players within reach so a far-off draw does not park the boss on a long flight; if nobody is, go nearest.
-        val here = boss.position()
-        val near = all.filter { FlightMath.horizontalDistance(it.position(), here) <= RANDOM_TARGET_REACH }
-        val chosen = near.randomPick()
-            ?: all.minByOrNull { FlightMath.horizontalDistance(it.position(), here) } ?: return
+        val method = BossConfig.TARGETING_METHOD.get()
+        val pool = poolOf(candidates(level), method)
+        // Draw by weight among the targets within reach so a far-off draw does not park the boss on a long flight; if
+        // nobody is, go for the best weighted distance.
+        val near = pool.filter { distanceTo(it) <= RANDOM_TARGET_REACH }
+        val chosen = TargetChoice.weightedRandom(near, this::weightOf, boss.getRandom())
+            ?: TargetChoice.bestScore(pool, this::weightOf, this::distanceTo) ?: return
         applyTarget(chosen)
-        aim = chosen.rootVehicle
+        aim = sight.resolve(chosen.rootVehicle, method)
         trackAim(aim)
         lastKnownPos = aim?.position()
     }
-
-    private fun <T> List<T>.randomOrNull(random: net.minecraft.util.RandomSource): T? =
-        if (isEmpty()) null else this[random.nextInt(size)]
 
     /** Smoothed per-tick velocity estimate from position differences (server-side player velocity is unreliable). */
     private fun trackAim(entity: Entity?) {
@@ -494,7 +542,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     private fun randomBetween(min: Int, max: Int): Int = min + boss.getRandom().nextInt(max - min + 1)
 
-    private fun referenceY(): Double = aim?.y ?: boss.homePos.y
+    private fun referenceY(): Double = aim?.y ?: lastTargetPos?.y ?: boss.homePos.y
 
     private fun cruiseAltitude(): Double =
         min(referenceY() + BossConfig.CRUISE_HEIGHT.get(), boss.level().maxBuildHeight + 60.0)
@@ -558,6 +606,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
                 bombPhase = BombPhase.SETUP
                 bombApproached = false
                 previousMiss = Double.MAX_VALUE
+                if (!nukeRun) nukeAim = null
                 fire.selectBombVariant(nukeRun)
             }
 
@@ -620,7 +669,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
      * never repeat back to back.
      */
     private fun selectNext() {
-        if (aim == null) {
+        if (aim == null || targetEntity == null || !isValidTarget(targetEntity!!)) {
             enter(BossState.INGRESS)
             return
         }
@@ -690,7 +739,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         weights[Attack.ORBIT_BARRAGE] = missileOrbit
         weights.values.removeIf { it <= 0 }
         // A rare, harmless show-off pass; it never replaces a real attack when the others are all switched off.
-        if (BossConfig.TAUNT_ENABLED.get() && weights.isNotEmpty()) weights[Attack.TAUNT] = TAUNT_WEIGHT
+        // Not against a hidden target either: there is nobody to show off to.
+        if (BossConfig.TAUNT_ENABLED.get() && weights.isNotEmpty() && !sight.hidden) weights[Attack.TAUNT] = TAUNT_WEIGHT
         val last = lastAttack
         if (last != null && (last != Attack.GUN_DIVE || gunStreak >= MAX_GUN_STREAK) &&
             weights.entries.any { it.key != last && it.value > 0 }
@@ -729,6 +779,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         bombComboPending = attack == Attack.GUN_DIVE && gunWeight > 0 &&
             boss.getRandom().nextInt(gunWeight) < gunBombing
         nukeRun = attack == Attack.NUKE_RUN
+        nukeAim = if (nukeRun) aim?.position() else null
         fire.selectBombVariant(false)
         if (nukeRun) fire.selectBombVariant(true)
         lastAttack = attack
@@ -787,8 +838,10 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         val cruise = cruiseAltitude()
 
         if (target == null) {
-            // Nobody to fight: orbit the home position.
-            ensureLoiter(boss.homePos.x, cruise, boss.homePos.z, BossConfig.ORBIT_RADIUS.get().toDouble())
+            // Nobody to fight: circle the spot where the last target was seen (it died, left or logged off) until a new
+            // one turns up; the home position only before the boss has had a target at all.
+            val spot = lastTargetPos ?: boss.homePos
+            ensureLoiter(spot.x, cruise, spot.z, BossConfig.ORBIT_RADIUS.get().toDouble())
             trimOrbitThrottle(cruise)
             return
         }
@@ -824,7 +877,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
     private fun orbitFire(target: Entity) {
         val now = boss.tickCount
         if (!BossConfig.MISSILES_ENABLED.get() || BossConfig.MISSILE_ORBIT_CHANCE.get() <= 0) return
-        if (now >= nextMissileTick && fire.fireMissile(target)) {
+        if (now >= nextMissileTick && fire.fireMissile(target, guided = !sight.isGhost(target))) {
             nextMissileTick = now + cooldown(randomBetween(60, 90))
         }
     }
@@ -870,7 +923,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
     private fun bombRun(target: Entity, altitudeError: Double) {
         // Aim for where the target will be when the bombs arrive.
-        val predicted = fire.bombLeadPoint(target)
+        val predicted = if (nukeRun) nukeAim ?: target.position() else fire.bombLeadPoint(target)
         val heading = towards(predicted)
         fly(FlightMath.tilted(heading, (altitudeError * 0.08).coerceIn(-5.0, 8.0)), 2.0f, maxBank = 45f)
 
@@ -889,7 +942,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         // short of the target so the middle bomb lands on it and the others straddle it.
         val track = FlightMath.horizontal(boss.deltaMovement, heading)
         val spacing = horizontalSpeed() * STICK_INTERVAL
-        val aimPoint = predicted.subtract(track.scale(spacing))
+        // A Mk-84 run releases one bomb; applying the Mk-82 stick spacing makes the single bomb land short.
+        val aimPoint = if (nukeRun) predicted else predicted.subtract(track.scale(spacing))
         val miss = FlightMath.horizontalDistance(impact, aimPoint)
 
         val ahead = (predicted.x - boss.x) * track.x + (predicted.z - boss.z) * track.z
@@ -919,6 +973,7 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         if (nukeRun) {
             if (!fire.dropNuke()) return // rack busy: try again next tick while the release window holds
             nukeRun = false
+            nukeAim = null
             fire.selectBombVariant(false)
             enter(BossState.EXTEND)
             return
@@ -1039,7 +1094,8 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
 
         // Rocket run with homing missiles: the AGM-65s leave while the rockets are being fired (FireControl paces them).
         if (diveWeapon == DiveWeapon.ROCKETS && target != null && diveMissilesLeft > 0 && clear &&
-            BossConfig.MISSILES_ENABLED.get() && range < MAX_DIVE_ROCKET_RANGE && fire.fireMissile(target)
+            BossConfig.MISSILES_ENABLED.get() && range < MAX_DIVE_ROCKET_RANGE &&
+            fire.fireMissile(target, guided = !sight.isGhost(target))
         ) {
             diveMissilesLeft--
         }
@@ -1542,8 +1598,6 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         const val TARGET_SCAN_INTERVAL = 20
         const val LOSE_TARGET_FACTOR = 1.5
 
-        /** A mob this far below the surface heightmap (blocks) still counts as under open sky. */
-        const val SKY_TOLERANCE = 2
         const val VELOCITY_SMOOTHING = 0.3
         const val TELEPORT_DISTANCE_SQR = 20.0 * 20.0
 
@@ -1700,7 +1754,14 @@ class A10BossBrain(private val boss: A10WarthogBossEntity) {
         const val CORRIDOR_CHECK_INTERVAL = 5
 
         // Terrain guard
-        const val UNKNOWN_TERRAIN_OFFSET = 40.0
+        /**
+         * Altitude (relative to the target) assumed for chunks that are not loaded, i.e. everything beyond the nearest
+         * player's render distance. It must be low: a "mountain" there (it used to be +40) failed every dive corridor
+         * check whose run-out left the loaded area and forced a steep pull-up on every look-ahead into it, so with a
+         * short render distance the plane kept climbing away and never started its attack. Below the target it blocks
+         * nothing, and the terrain near the target (always loaded, the player is there) is still read for real.
+         */
+        const val UNKNOWN_TERRAIN_OFFSET = -10.0
         const val GUARD_BASE_BUFFER = 12.0
         const val GUARD_DESCENT_FACTOR = 14.0
     }
